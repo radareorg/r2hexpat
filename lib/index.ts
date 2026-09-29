@@ -34,7 +34,8 @@ export function runHexpat(src: string, r2Bridge: any): PatternInstance {
   if (!r2 || !r2.plugin) return; // not running inside r2
 
   function usage(): void {
-    console.log("Usage: hexpat [file.hexpat] - evaluate an ImHex pattern file");
+    console.log("Usage: hexpat [-q] [file.hexpat] - evaluate an ImHex pattern file");
+    console.log(" -q  quiet: evaluate only, do not dump the patterns");
   }
 
   function hexpatCommand(cmd: string): void {
@@ -43,14 +44,16 @@ export function runHexpat(src: string, r2Bridge: any): PatternInstance {
       usage();
       return;
     }
-    const filename = args;
+    let quiet = false;
+    let filename = args;
+    if (filename.startsWith("-q ")) { quiet = true; filename = filename.substr(3).trim(); }
     const src = r2.cmd("cat " + filename);
     if (!src || src.trim() === "") {
       console.error("hexpat: cannot read " + filename);
       return;
     }
     const instance = runHexpat(src, r2);
-    instance.dump();
+    if (!quiet) instance.dump();
   }
 
   r2.unload("core", "hexpat");

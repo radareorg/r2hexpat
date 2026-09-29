@@ -19,7 +19,10 @@ tests/unit.js: tests/unit.ts $(SRCS)
 check:
 	tsc -p .
 
-test: test-unit test-r2
+test: test-unit test-r2 test-upstream
+
+test-upstream: $(OUT)
+	python3 tests/run_upstream.py
 
 test-unit: tests/unit.js
 	node tests/unit.js
@@ -39,4 +42,4 @@ test-r2: $(OUT)
 clean:
 	rm -f $(OUT) tests/unit.js tests/r2_out.txt
 
-.PHONY: all check test test-unit test-r2 clean
+.PHONY: all check test test-unit test-r2 test-upstream clean

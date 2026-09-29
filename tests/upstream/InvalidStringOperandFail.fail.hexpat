@@ -1,0 +1,1 @@
+str result = "left" - "right";

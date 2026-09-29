@@ -345,8 +345,10 @@ function formatOne(ev: PatternInstance, v: any, spec: string): string {
   if (!m) ev.error("invalid format specifier '" + spec + "'");
   const [, fill, align, sign, alt, zero, width, prec, type] = m;
   if (v instanceof Pattern) {
+    // arguments decay like rvalues: scalars and transformed patterns become their
+    // value, enums and plain composites are rendered (which applies [[format]])
     const d = ev.decay(v);
-    v = d instanceof Pattern || v.enumInfo || (!type && (v.formatFn)) ? ev.formatPattern(v) : d;
+    v = d instanceof Pattern || v.enumInfo ? ev.formatPattern(v) : d;
   }
   let s: string;
   if (typeof v === "bigint" || typeof v === "boolean" && type || (v instanceof Chr && type && type !== "c")) {

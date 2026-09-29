@@ -49,6 +49,7 @@ interface Frame {
   ns: string[];
   binds: Map<string, any>;    // template parameter bindings (CType or value)
   bit?: { pos: number; mode: BitMode }; // bitfield bit cursor
+  placeBase?: number;         // imported type: its own `@` placements are relative to the instance
 }
 
 class Signal { constructor(public kind: "break" | "continue" | "return", public value?: any) {} }
@@ -95,7 +96,9 @@ export class PatternInstance {
   patternLimit = 0x100000;
   evalDepth = MAX_DEPTH;
   arrayIndex = 0n;            // std::core::array_index()
-  pendingCtrl?: "break" | "continue"; // break/continue leaving a struct, consumed by the enclosing array
+  pendingCtrl?: "break" | "continue" | "return"; // control flow leaving a struct: arrays consume break/continue,
+  private lastCtrl?: "break" | "continue" | "return"; // a return ends the whole evaluation
+  private importsRegistered = new Set<A.ImportedDecl>();
   private patternCount = 0;
   private printFn: (s: string) => void;
 
@@ -143,7 +146,7 @@ export class PatternInstance {
   }
 
   /** Collect type and function declarations (types are hoisted). */
-  private register(body: A.Stmt[]): void {
+  private register(body: A.Stmt[], lenient = false): void {
     for (const s of body) {
       switch (s.s) {
         case "struct": case "union": case "enum": case "bitfield": case "using": case "imported": {
@@ -154,7 +157,7 @@ export class PatternInstance {
           break;
         }
         case "fn":
-          if (this.fns.has(s.name)) this.error("redefinition of function '" + s.name + "'", s.loc);
+          if (this.fns.has(s.name) && !lenient) this.error("redefinition of function '" + s.name + "'", s.loc);
           this.fns.set(s.name, s);
           break;
       }
@@ -357,15 +360,29 @@ export class PatternInstance {
         const d = c.decl;
         if (d.s === "enum") {
           const ut = this.resolveInFrame(d.underlying, d.ns);
-          if (ut.t !== "builtin") this.error("enum underlying type must be a builtin type", d.loc);
-          p = this.newPattern("enum", c.display, ut.size, this.endian(ut));
-          if (ut.name[0] === "s") p.fieldKind = "signed";
+          if (ut.t === "builtin") {
+            p = this.newPattern("enum", c.display, ut.size, this.endian(ut));
+            if (ut.name[0] === "s") p.fieldKind = "signed";
+            this.cursor += ut.size;
+          } else {
+            // any integer-valued type works as underlying type (e.g. a LEB128 with a transform)
+            const start = this.cursor;
+            const inner = this.create(ut, "");
+            p = this.newPattern("enum", c.display, inner.size, inner.be);
+            p.offset = start;
+            p.inner = inner;
+          }
           p.enumInfo = this.enumInfo(d);
-          this.cursor += ut.size;
         } else if (d.s === "bitfield") {
           p = this.createBitfield(c, d);
         } else if (d.s === "imported") {
-          p = this.createStruct(c, { s: "struct", loc: d.loc, name: d.name, ns: [], body: d.program.body });
+          // an imported file keeps its own `#pragma endian`
+          let be: boolean | undefined;
+          for (const [k, v] of d.program.pragmas) if (k === "endian") be = v === "big" ? true : v === "little" ? false : be;
+          if (!this.importsRegistered.has(d)) { this.importsRegistered.add(d); this.register(d.program.body, true); }
+          this.endianStack.push(c.be !== undefined ? c.be : be);
+          try { p = this.createStruct(c, { s: "struct", loc: d.loc, name: d.name, ns: [], body: d.program.body }, this.cursor); }
+          finally { this.endianStack.pop(); }
           p.imported = true;
         } else {
           p = this.createStruct(c, d);
@@ -415,11 +432,12 @@ export class PatternInstance {
     return fr;
   }
 
-  private createStruct(c: CType & { t: "decl" }, d: A.StructDecl): Pattern {
+  private createStruct(c: CType & { t: "decl" }, d: A.StructDecl, placeBase?: number): Pattern {
     const p = this.newPattern(d.s === "union" ? "union" : "struct", c.display, 0, this.endian(c));
     p.parent = this.curFrame.pattern;
     const start = this.cursor;
     const fr = this.pushFrame("struct", p, d.ns, c.binds);
+    fr.placeBase = placeBase;
     try {
       const run = (decl: A.StructDecl, binds: Map<string, any>) => {
         for (const inh of decl.inherits || []) {
@@ -436,7 +454,7 @@ export class PatternInstance {
         } catch (e) {
           if (!(e instanceof Signal)) throw e;
           // break / continue end the struct and propagate to the enclosing array
-          if (e.kind !== "return") this.pendingCtrl = e.kind;
+          this.pendingCtrl = e.kind;
         }
       };
       run(d, c.binds);
@@ -483,7 +501,7 @@ export class PatternInstance {
       try { this.execBlock(d.body, fr, false); }
       catch (e) {
         if (!(e instanceof Signal)) throw e;
-        if (e.kind !== "return") this.pendingCtrl = e.kind;
+        this.pendingCtrl = e.kind;
       }
       const bits = fr.bit.pos - startBit;
       p.bits = bits;
@@ -582,10 +600,9 @@ export class PatternInstance {
   private addMember(fr: Frame, p: Pattern, d: A.DeclStmt): void {
     const parent = fr.pattern!;
     p.parent = parent;
-    if (d.name) {
-      if (parent.member(d.name)) this.error("redefinition of member '" + d.name + "'", d.loc);
-      fr.root.vars.set(d.name, { v: p });
-    }
+    // duplicates in the same scope are rejected by the parser; members declared in
+    // different branches or loop iterations may share a name (the latest one wins)
+    if (d.name) fr.root.vars.set(d.name, { v: p });
     parent.addChild(p);
   }
 
@@ -595,7 +612,8 @@ export class PatternInstance {
     let section = this.section;
     if (d.section !== undefined) section = this.userSection(this.toInt(this.evalExpr(d.section)));
     else if (section === HEAP_SECTION) section = MAIN_SECTION;
-    const addr = Number(uintN(64, off));
+    let addr = Number(uintN(64, off));
+    if (fr.placeBase !== undefined && d.section === undefined) addr += fr.placeBase;
     if (section === MAIN_SECTION && (addr < 0 || addr > this.mem(MAIN_SECTION).size()))
       this.error("cannot place variable '" + d.name + "' at out of bounds address 0x" + addr.toString(16), d.loc);
     if (d.type.name === "str" && !d.array) this.error("variables of type 'str' cannot be placed in memory", d.loc);
@@ -629,6 +647,9 @@ export class PatternInstance {
       if (init instanceof Pattern) {
         p = this.heapClone(init, true);
         p.name = d.name;
+      } else if (inStruct) {
+        // inside a struct an `auto` local is still a (pattern-local) member
+        p = this.literalPattern(init, d.name);
       } else v = init;
     } else {
       p = this.allocLocal(d);
@@ -642,6 +663,24 @@ export class PatternInstance {
     } else {
       this.declare(d.name, p ? { v: p, isConst: d.isConst } : { v, isConst: d.isConst, binding: true }, scope, d.loc);
     }
+  }
+
+  /** A heap pattern holding a plain value (`auto x = 5;` inside a struct). */
+  private literalPattern(v: any, name: string): Pattern {
+    const kind: PKind = typeof v === "string" ? "string" : typeof v === "number" ? "float" : typeof v === "boolean" ? "bool"
+      : v instanceof Chr ? "char" : typeof v === "bigint" && v < 0n ? "signed" : "unsigned";
+    const size = kind === "string" ? v.length : kind === "float" ? 8 : kind === "bool" || kind === "char" ? 1 : 16;
+    const typeName = kind === "string" ? "str" : kind === "float" ? "double" : kind === "bool" ? "bool" : kind === "char" ? "char" : kind === "signed" ? "s128" : "u128";
+    const p = new Pattern(kind, typeName);
+    p.section = HEAP_SECTION;
+    p.offset = this.heap.alloc(size);
+    p.size = size;
+    p.local = true;
+    p.loose = true;
+    p.hasOverride = true;
+    p.override = v;
+    p.name = name;
+    return p;
   }
 
   /** Instantiate a declaration's type in zeroed heap memory. */
@@ -780,10 +819,11 @@ export class PatternInstance {
     } else {
       arr.children = [];
       let stop = false;
+      let iteration = 0; // std::core::array_index() counts iterations, including dropped entries
       const addElem = () => {
         limitCheck(arr.children!.length + 1);
         const saveIdx = this.arrayIndex;
-        this.arrayIndex = BigInt(arr.children!.length);
+        this.arrayIndex = BigInt(iteration++);
         this.pendingCtrl = undefined;
         let e: Pattern;
         try { e = this.create(c, "[" + arr.children!.length + "]"); } finally { this.arrayIndex = saveIdx; }
@@ -792,7 +832,9 @@ export class PatternInstance {
         // `break` in an entry keeps it and ends the array, `continue` drops it
         const ctrl = this.pendingCtrl;
         this.pendingCtrl = undefined;
+        this.lastCtrl = ctrl;
         if (ctrl === "break") stop = true;
+        else if (ctrl === "return") { stop = true; this.pendingCtrl = "return"; }
         else if (ctrl === "continue") arr.children!.pop();
         return e;
       };
@@ -809,10 +851,15 @@ export class PatternInstance {
           addElem();
         }
       } else {
+        // like the reference runtime: an unsized array of non-static entries ends after the
+        // first entry unless the entry uses `continue` (then all-zero entries terminate it)
         while (!stop) {
           if (isMain && this.cursor >= dataSize) this.error("array expanded past end of the data before a null-entry was found");
+          const n = arr.children.length;
           const e = addElem();
-          if (this.readPatternBytes(e).every((x) => x === 0)) break;
+          if (stop) break;
+          if (arr.children.length === n) continue; // `continue`: entry dropped, keep going
+          if (!this.lastCtrl || this.readPatternBytes(e).every((x) => x === 0)) break;
         }
       }
       arr.count = arr.children.length;
@@ -845,7 +892,8 @@ export class PatternInstance {
     else if (d.bitSign === "signed" || (c.t === "builtin" && c.name[0] === "s")) { p.fieldKind = "signed"; p.typeName = "signed"; }
     else { p.fieldKind = "unsigned"; p.typeName = d.bitSign === "unsigned" ? "unsigned" : ""; }
     p.name = d.name;
-    bit.pos += width;
+    // [[no_unique_address]] fields overlap the next field
+    if (!this.attrOf(d.attrs, "no_unique_address")) bit.pos += width;
     if (d.attrs) this.applyAttrs(p, d.attrs);
     this.addMember(fr, p, d);
   }
@@ -927,7 +975,7 @@ export class PatternInstance {
     switch (p.kind) {
       case "unsigned": case "signed": case "bool": case "char": case "char16": case "float":
         return this.readScalar(p, p.kind);
-      case "enum": return this.readInt(p, p.fieldKind === "signed");
+      case "enum": return p.inner ? this.toInt(this.value(p.inner)) : this.readInt(p, p.fieldKind === "signed");
       case "padding": return p;
       case "struct":
         // a type imported from a file with a single variable decays to it
@@ -1045,10 +1093,11 @@ export class PatternInstance {
     try {
       for (const s of body) {
         this.exec(s, fr);
-        if (this.pendingCtrl && (fr.kind === "struct" || fr.kind === "bitfield")) {
+        if (this.pendingCtrl) {
           const k = this.pendingCtrl;
           this.pendingCtrl = undefined;
-          throw new Signal(k);
+          if (fr.kind === "struct" || fr.kind === "bitfield") throw new Signal(k);
+          if (fr.kind === "global" && k === "return") throw new Signal("return");
         }
       }
     } finally { fr.scope = save; }
@@ -1121,6 +1170,12 @@ export class PatternInstance {
       case "break": throw new Signal("break");
       case "continue": throw new Signal("continue");
       case "block": this.nested(s.body, fr); return;
+      case "nsctx": {
+        const save = fr.ns;
+        fr.ns = s.ns;
+        try { for (const x of s.body) this.exec(x, fr); } finally { fr.ns = save; }
+        return;
+      }
       case "fn":
         if (fr.kind !== "global") this.fns.set(s.name, s);
         return;
@@ -1378,7 +1433,16 @@ export class PatternInstance {
       if (e.args.length !== 1) this.error("cast expects exactly one argument", e.loc);
       const c = this.resolveType({ name: e.name, args: e.targs, loc: e.loc });
       const v = this.decay(this.evalExpr(e.args[0]));
-      if (c.t === "builtin") return this.cast(c.name, v, e.loc);
+      if (c.t === "builtin") {
+        const r = this.cast(c.name, v, e.loc);
+        // `be u16(x)`: the value as it reads when stored with that endianness (byte swap vs. little endian)
+        if (e.endian === "be" && typeof r === "bigint" && c.size > 1) {
+          let x = uintN(c.size * 8, r), y = 0n;
+          for (let i = 0; i < c.size; i++) { y = (y << 8n) | (x & 0xffn); x >>= 8n; }
+          return c.name[0] === "s" ? intN(c.size * 8, y) : y;
+        }
+        return r;
+      }
       if (c.t === "decl" && c.decl.s === "enum") {
         const ut = this.resolveInFrame(c.decl.underlying, c.decl.ns);
         return this.cast((ut as any).name, v, e.loc);
@@ -1387,7 +1451,9 @@ export class PatternInstance {
     }
     const args: any[] = [];
     for (const a of e.args) {
-      const v = this.evalExpr(a);
+      let v = this.evalExpr(a);
+      // arguments are rvalues: patterns with a [[transform]] pass their transformed value
+      if (v instanceof Pattern && v.transformFn) v = this.value(v);
       if (v instanceof Pack) args.push(...v.items); else args.push(v);
     }
     const fn = this.findFn(e.name);
@@ -1625,12 +1691,16 @@ export class PatternInstance {
   }
 
   private dumpValue(p: Pattern): string {
-    if (p.formatFn || p.transformFn) return this.formatValue(this.formatPattern(p));
+    if (p.formatFn) return this.formatPattern(p);
+    if (p.transformFn) return this.formatValue(this.value(p));
     if (p.kind === "enum" || (p.kind === "bitfield_field" && p.fieldKind === "enum")) {
       const v = p.kind === "enum" ? this.value(p, true) : this.readBitsValue(p);
       return fmtInt(v) + " = " + this.formatPattern(p);
     }
-    return this.formatValue(this.value(p));
+    const v = this.value(p);
+    // strings keep all their bytes; the terminating/padding NULs are not shown
+    if ((p.kind === "string" || p.kind === "wstring") && typeof v === "string") return quote(v.replace(/\0+$/, ""));
+    return this.formatValue(v);
   }
 
   /** Evaluate an expression in the global scope of this (already evaluated) instance. */

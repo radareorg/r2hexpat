@@ -30,7 +30,11 @@ const data = new Uint8Array(fs.readFileSync(path.join(dir, "test_data.bin")));
 const failing = [], regressions = [], fixed = [];
 let total = 0;
 const t0 = Date.now();
-for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".hexpat")).sort()) {
+// tests/upstream holds the extracted upstream suite, tests/local our own assert-based tests
+const files = [];
+for (const d of [dir, path.join(here, "local")]) for (const f of fs.readdirSync(d).filter((f) => f.endsWith(".hexpat")).sort()) files.push(path.join(d, f));
+for (const file of files) {
+  const f = path.basename(file);
   const name = f.replace(/\.hexpat$/, "");
   const base = name.replace(/\.fail$/, "");
   if (only.length && !only.includes(name) && !only.includes(base)) continue;
@@ -40,7 +44,7 @@ for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".hexpat")).sort())
   host.print = (s) => out.push(s);
   let err = "";
   try {
-    runHexpat(fs.readFileSync(path.join(dir, f), "utf8"), host, { name: f, hooks: HOOKS[base] ? HOOKS[base]() : {} });
+    runHexpat(fs.readFileSync(file, "utf8"), host, { name: f, hooks: HOOKS[base] ? HOOKS[base]() : {} });
   } catch (e) {
     // pattern errors carry a location; anything else is an interpreter bug
     err = e && e.line !== undefined ? e.message : "internal: " + (e && e.stack ? e.stack : String(e));

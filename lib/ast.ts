@@ -26,7 +26,7 @@ export type Expr = { loc: Loc } & (
   | { k: "parent" }
   | { k: "member"; obj: Expr; name: string }
   | { k: "index"; obj: Expr; idx: Expr }
-  | { k: "call"; name: string; args: Expr[]; targs?: (TypeApp | Expr)[] }
+  | { k: "call"; name: string; args: Expr[]; targs?: (TypeApp | Expr)[]; endian?: "le" | "be" }
   | { k: "bin"; op: string; l: Expr; r: Expr }
   | { k: "un"; op: string; e: Expr }
   | { k: "tern"; c: Expr; a: Expr; b: Expr }
@@ -81,6 +81,7 @@ export type Stmt =
   | { s: "break"; loc: Loc }
   | { s: "continue"; loc: Loc }
   | { s: "block"; loc: Loc; body: Stmt[] }
+  | { s: "nsctx"; loc: Loc; ns: string[]; body: Stmt[] }   // statements written inside a namespace
   | { s: "import"; loc: Loc; path: string; alias?: string; asType?: string }
   | TypeDecl;
 

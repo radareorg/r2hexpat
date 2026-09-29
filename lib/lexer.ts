@@ -135,6 +135,8 @@ export function lex(src: string, srcName = "", firstLine = 1): Token[] {
         push("num", m[0], BigInt("0b" + m[1].replace(/[_']/g, "")));
       } else if ((m = rest.match(/^0[oO]([0-7_']+)([uU]?)/))) {
         push("num", m[0], BigInt("0o" + m[1].replace(/[_']/g, "")));
+      } else if ((m = rest.match(/^([0-9][0-9_']*)(\.)([fFdD])(?![a-zA-Z0-9_])/))) {
+        push("num", m[0], parseFloat(m[1].replace(/[_']/g, ""))); // `1.F`
       } else if ((m = rest.match(/^([0-9][0-9_']*)?(\.[0-9]+)?([eE][+-]?[0-9]+)?([uUfFdD]?)/)) && m[0].length) {
         const body = (m[1] || "").replace(/[_']/g, "") + (m[2] || "") + (m[3] || "");
         const suf = m[4].toLowerCase();

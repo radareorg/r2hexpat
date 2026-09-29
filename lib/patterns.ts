@@ -48,6 +48,8 @@ export class Pattern {
   bits = 0;
   bitMode?: BitMode;
   fieldKind?: "unsigned" | "signed" | "bool" | "enum";
+  // enums over a non-builtin underlying type
+  inner?: Pattern;
   // pointers
   pointee?: Pattern;
   // display

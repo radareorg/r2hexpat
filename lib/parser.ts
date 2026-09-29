@@ -9,12 +9,12 @@ export const BUILTIN_TYPES = new Set([
   "float", "double", "float16", "char", "char16", "bool", "str", "padding", "auto",
 ]);
 
-// binary operator precedence, lowest first
+// binary operator precedence, lowest first. Unlike C, the bitwise operators
+// bind tighter than comparisons: `x & 0x80 != 0` is `(x & 0x80) != 0`.
 const PREC: string[][] = [
-  ["||"], ["^^"], ["&&"], ["|"], ["^"], ["&"],
-  ["==", "!="], ["<", ">", "<=", ">="], ["<<", ">>"], ["+", "-"], ["*", "/", "%"],
+  ["||"], ["^^"], ["&&"], ["==", "!="], ["<", ">", "<=", ">="],
+  ["|"], ["^"], ["&"], ["<<", ">>"], ["+", "-"], ["*", "/", "%"],
 ];
-const LEVEL_BOR = 3;
 const ASSIGN_OPS = new Set(["=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^="]);
 
 interface ImportState { seen: Set<string>; resolve?: SourceResolver; pragmas: [string, string][]; defines: Map<string, string>; once: Set<string>; }
@@ -252,7 +252,7 @@ class Parser {
           case "be": case "le": case "unsigned": case "signed": {
             this.i--;
             const ty = this.parseType();
-            if (this.isOp("(")) return { k: "call", name: ty.name, args: this.parseCallArgs(), targs: ty.args, loc };
+            if (this.isOp("(")) return { k: "call", name: ty.name, args: this.parseCallArgs(), targs: ty.args, endian: ty.endian, loc };
             return { k: "type", t: ty, loc };
           }
         }
@@ -648,7 +648,13 @@ class Parser {
         const save = this.ns;
         this.ns = save.concat(parts);
         this.expectOp("{");
-        while (!this.acceptOp("}")) { if (this.peek().k === "eof") this.err("expected '}'"); this.statement(out); }
+        const inner: A.Stmt[] = [];
+        while (!this.acceptOp("}")) { if (this.peek().k === "eof") this.err("expected '}'"); this.statement(inner); }
+        // declarations are registered globally; other statements keep the namespace for name lookups
+        for (const st of inner) {
+          if (st.s === "struct" || st.s === "union" || st.s === "enum" || st.s === "bitfield" || st.s === "using" || st.s === "fn" || st.s === "imported" || st.s === "nsctx") out.push(st);
+          else out.push({ s: "nsctx", loc: st.loc, ns: this.ns.slice(), body: [st] });
+        }
         this.ns = save;
         this.semis();
         return;

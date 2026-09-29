@@ -90,7 +90,9 @@ if (!parseOnly) {
   const tdir = path.join(root, "tests/patterns/test_data");
   const tfiles = fs.existsSync(tdir) ? fs.readdirSync(tdir) : [];
   let evalOk = 0, evalTotal = 0;
-  for (const f of walk(path.join(root, "patterns"), ".hexpat")) {
+  // like upstream's CMake glob, only the top-level patterns are evaluated
+  const top = fs.readdirSync(path.join(root, "patterns")).filter((x) => x.endsWith(".hexpat")).map((x) => path.join(root, "patterns", x));
+  for (const f of top) {
     const name = path.basename(f);
     if (filter && !f.includes(filter)) continue;
     let samples = [];

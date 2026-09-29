@@ -4,20 +4,28 @@
 # Test:    make test     (unit test with mock r2 + r2 golden tests + upstream suite)
 # Usage:   r2 -q -i hexpat.r2.js -c 'hexpat demo/test.hexpat' /bin/ls
 
-BUNDLE  = r2frida-compile
+# BUNDLER=esbuild uses node_modules (npm ci) instead of r2frida-compile
+BUNDLER ?= r2frida-compile
 OUT     = hexpat.r2.js
 SRCS    = $(wildcard lib/*.ts)
+ifeq ($(BUNDLER),esbuild)
+BUNDLE  = npx esbuild --bundle --format=iife --target=es2020 --log-level=warning --outfile=$@
+TSC     = npx tsc
+else
+BUNDLE  = r2frida-compile -S -B iife -o $@
+TSC     = tsc
+endif
 
 all: $(OUT)
 
 $(OUT): $(SRCS)
-	$(BUNDLE) -S -B iife -o $(OUT) lib/index.ts
+	$(BUNDLE) lib/index.ts
 
 tests/unit.js: tests/unit.ts $(SRCS)
-	$(BUNDLE) -S -B iife -o $@ tests/unit.ts
+	$(BUNDLE) tests/unit.ts
 
 check:
-	tsc -p .
+	$(TSC) -p .
 
 test: test-unit test-r2 test-upstream
 

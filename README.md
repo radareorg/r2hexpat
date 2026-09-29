@@ -1,11 +1,19 @@
 # imhexpat
 
+[![CI](https://github.com/radareorg/r2hexpat/actions/workflows/ci.yml/badge.svg)](https://github.com/radareorg/r2hexpat/actions/workflows/ci.yml)
+
 ImHex Pattern Language (.hexpat) evaluator for radare2, written in TypeScript,
 bundled with `r2frida-compile` into a QuickJS-compatible r2js plugin.
 
 ## Build
 
-    make
+    make                    # bundles with r2frida-compile
+    npm ci && make BUNDLER=esbuild   # or with esbuild from node_modules
+
+## Test
+
+    make check              # tsc type-check (lint)
+    make test               # unit + r2 golden + upstream conformance suite
 
 ## Run
 

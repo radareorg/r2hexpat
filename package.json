@@ -1,0 +1,16 @@
+{
+  "name": "r2hexpat",
+  "version": "0.1.0",
+  "description": "ImHex pattern language (.hexpat) evaluator for radare2",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "make BUNDLER=esbuild",
+    "lint": "tsc -p .",
+    "test": "make BUNDLER=esbuild test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,3 +1,5 @@
+<p align="center"><img src="hexpat.jpg" alt="r2hexpat"></p>
+
 # r2hexpat
 
 [![CI](https://github.com/radareorg/r2hexpat/actions/workflows/ci.yml/badge.svg)](https://github.com/radareorg/r2hexpat/actions/workflows/ci.yml)

@@ -1,0 +1,49 @@
+-- help
+Usage: hexpat[?+-jl*e] [args]  # ImHex pattern language
+| hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns
+| hexpat                       show the patterns of the loaded files
+| hexpat+ [-I dir] file        evaluate file and add it to the loaded ones
+| hexpat- [n]                  unload all loaded files (or the nth)
+| hexpatj [file]               show the patterns as JSON
+| hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)
+| hexpatl[j]                   list the loaded files and their top-level patterns
+| hexpate expr                 evaluate an expression in the context of the last loaded file
+| hexpat?                      show this help
+| options: -q (evaluate only), -I dir (add #include / import search path)
+-- load one file, list, evaluate expressions in its context
+fib=55 kind=low high sizeof=6 type=Pair<u16, 2>
+0 tests/syntax_functions.hexpat (2 patterns)
+  0x00000000      6  pair (Pair<u16, 2>)
+  0x00000020      1  ptr (u8*)
+144 (0x90)
+62936 (0xf5d8)
+12 (0xc)
+"Pair<u16, 2>"
+"ababc"
+rest (u16[2]) @ 0x00000002 size=4
+  rest[0] (u16) @ 0x00000002 = 6439 (0x1927)
+  rest[1] (u16) @ 0x00000004 = 62935 (0xf5d7)
+-- stack a second file
+1 tests/syntax_enum.hexpat (3 patterns)
+0 tests/syntax_functions.hexpat (2 patterns)
+  0x00000000      6  pair (Pair<u16, 2>)
+  0x00000020      1  ptr (u8*)
+1 tests/syntax_enum.hexpat (3 patterns)
+  0x0000001d      1  k (Kind)
+  0x0000000b      4  probe (u32)
+  0x0000000b      1  probe2 (u8)
+[{"index":0,"file":"tests/syntax_functions.hexpat","base":0,"patterns":[{"name":"pair","type":"Pair<u16, 2>","addr":0,"size":6},{"name":"ptr","type":"u8*","addr":32,"size":1}]},{"index":1,"file":"tests/syntax_enum.hexpat","base":0,"patterns":[{"name":"k","type":"Kind","addr":29,"size":1},{"name":"probe","type":"u32","addr":11,"size":4},{"name":"probe2","type":"u8","addr":11,"size":1}]}]
+k (Kind) @ 0x0000001d = 5 (0x5) = Kind::B
+probe (u32) @ 0x0000000b = 3701228196 (0xdc9c42a4)
+probe2 (u8) @ 0x0000000b = 164 (0xa4)
+-- unload
+0 tests/syntax_enum.hexpat (3 patterns)
+  0x0000001d      1  k (Kind)
+  0x0000000b      4  probe (u32)
+  0x0000000b      1  probe2 (u8)
+-- expressions without a loaded file use the current data
+145 (0x91)
+255 (0xff)
+-- errors
+hexpat: error: variable 'nope' does not exist (<expr>:1:1)
+hexpat: cannot read tests/does_not_exist.hexpat

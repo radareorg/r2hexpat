@@ -1,0 +1,42 @@
+-- json
+[{"name":"le_flags","type":"Flags","kind":"bitfield","addr":0,"offset":0,"size":2,"children":[{"name":"lo","type":"","kind":"bitfield_field","addr":0,"offset":0,"size":1,"bits":3,"bitOffset":0,"value":4},{"name":"set","type":"bool","kind":"bitfield_field","addr":0,"offset":0,"size":1,"bits":1,"bitOffset":3,"value":true},{"name":"mid","type":"signed","kind":"bitfield_field","addr":0,"offset":0,"size":1,"bits":4,"bitOffset":4,"value":7},{"name":"mode","type":"Mode","kind":"bitfield_field","addr":1,"offset":1,"size":1,"bits":2,"bitOffset":0,"value":1,"repr":"Mode::On"}]},{"name":"be_flags","type":"Flags","kind":"bitfield","addr":0,"offset":0,"size":2,"children":[{"name":"lo","type":"","kind":"bitfield_field","addr":0,"offset":0,"size":1,"bits":3,"bitOffset":0,"value":3},{"name":"set","type":"bool","kind":"bitfield_field","addr":0,"offset":0,"size":1,"bits":1,"bitOffset":3,"value":true},{"name":"mid","type":"signed","kind":"bitfield_field","addr":0,"offset":0,"size":1,"bits":4,"bitOffset":4,"value":-4},{"name":"mode","type":"Mode","kind":"bitfield_field","addr":1,"offset":1,"size":1,"bits":2,"bitOffset":0,"value":0,"repr":"Mode::Off"}]}]
+[{"name":"pair","type":"Pair<u16, 2>","kind":"struct","addr":0,"offset":0,"size":6,"children":[{"name":"first","type":"u16","kind":"unsigned","addr":0,"offset":0,"size":2,"value":5500},{"name":"rest","type":"u16[2]","kind":"array","addr":2,"offset":2,"size":4,"count":2,"entries":[{"name":"[0]","type":"u16","kind":"unsigned","addr":2,"offset":2,"size":2,"value":6439},{"name":"[1]","type":"u16","kind":"unsigned","addr":4,"offset":4,"size":2,"value":62935}]}]},{"name":"ptr","type":"u8*","kind":"pointer","addr":32,"offset":32,"size":1,"value":133,"pointee":{"name":"*ptr","type":"u8","kind":"unsigned","addr":133,"offset":133,"size":1,"value":74}}]
+-- r2 script
+fs+hexpat
+f hexpat.pair 6 @ 0x0
+f hexpat.pair.first 2 @ 0x0
+Cd 2 @ 0x0
+CCu u16 first = 0x157c @ 0x0
+f hexpat.pair.rest 4 @ 0x2
+Cd 2 2 @ 0x2
+f hexpat.ptr 1 @ 0x20
+CCu u8* ptr = 0x85 @ 0x20
+f hexpat.ptr.deref 1 @ 0x85
+Cd 1 @ 0x85
+CCu u8 *ptr = 0x4a @ 0x85
+fs-
+fs+hexpat
+f hexpat.s1 86 @ 0x0
+Cs 86 @ 0x0
+CCu char[86] s1 = _.'...R.....B...q.-.._..3.....Zw.....{c....&.P.X.m.O..n......q..... @ 0x0
+f hexpat.after_s1 1 @ 0x56
+Cd 1 @ 0x56
+CCu u8 after_s1 = 0xcb @ 0x56
+f hexpat.raw 4 @ 0x0
+Cs 4 @ 0x0
+CCu char[4] raw = _.'. @ 0x0
+fs-
+-- apply it
+0x00000000 22 hexpat.file
+0x00000000 16 hexpat.file.head
+0x00000000 4 hexpat.file.head.magic
+0x00000004 2 hexpat.file.head.version
+0x00000006 2 hexpat.file.head.flags
+0x00000008 8 hexpat.file.head.timestamp
+0x00000010 4 hexpat.file.word
+0x00000010 4 hexpat.file.word.value
+0x00000010 4 hexpat.file.word.bytes
+0x00000014 1 hexpat.file.len
+0x00000015 1 hexpat.file.data
+0x00000016 4 hexpat.footer
+u8 len = 0xbd

@@ -14,5 +14,17 @@ for f in tests/*.hexpat; do
 		echo "FAIL $f"; printf '%s\n' "$out" | diff -u "$f.golden" -; fail=1
 	fi
 done
+# command tests: tests/cmd_*.r2 are r2 scripts run with the plugin loaded
+for f in tests/cmd_*.r2; do
+	out=$(r2 -q -e scr.color=0 -i hexpat.r2.js -i "$f" tests/sample.bin 2>&1)
+	if [ "$1" = "-u" ]; then
+		printf '%s\n' "$out" > "$f.golden"; echo "updated $f.golden"; continue
+	fi
+	if printf '%s\n' "$out" | diff -u "$f.golden" - >/dev/null; then
+		echo "PASS $f"
+	else
+		echo "FAIL $f"; printf '%s\n' "$out" | diff -u "$f.golden" -; fail=1
+	fi
+done
 [ $fail = 0 ] && echo "All r2 tests passed!"
 exit $fail

@@ -22,12 +22,12 @@ golden tests.
 - [x] Built-in std: `assert`, `print`, `format` (fmt specs), `std::mem` (sections, reads), `std::core`, `std::string`, `std::math`
 - [x] Semantic errors: redeclarations, const assignment, division by zero, bad string ops, arity, undefined functions
 - [x] Host-independent library (`HexpatHost`), r2 plugin in `r2/`, paged reads (4K `p8`)
+- [x] r2 commands: `hexpatj` (JSON), `hexpat*` (flags, data hints, comments), `hexpatl`, `hexpate` (expressions), `hexpat+`/`hexpat-` (several loaded files), `hexpat?`
 
 ## 🚀 Next
 - [ ] Load the real ImHex std library (`import std.mem;` etc. from an ImHex-Patterns checkout via `-I`); today `std`/`type`/`hex` imports are ignored when not found and only the built-in subset is available
 - [ ] Verify pattern trees of the upstream tests (the C++ suite compares them; we only check evaluation succeeds/fails)
-- [ ] JSON output mode (`hexpatj`) for scripting
-- [ ] Push types into r2's type database (`td`) and link at addresses (`tl`), flags per pattern
+- [ ] Push types into r2's type database (`td`) and link at addresses (`tl`)
 - [ ] Remaining attributes: `inline`, `single_color`, `format_entries`, `transform_entries`, visualizers (parsed and stored, not applied)
 - [ ] `std::hash`, `std::time`, `std::random`, `std::file` builtins
 

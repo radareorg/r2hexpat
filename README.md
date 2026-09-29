@@ -14,12 +14,21 @@ host-independent library plus a radare2 (r2js / QuickJS) plugin.
 
     r2 -q -i hexpat.r2.js -c 'hexpat demo/test.hexpat' /bin/ls
 
-Inside an interactive r2 session:
+Commands (all output goes through r2's console, so `~grep` and `|` work):
 
-    [0x00000000]> hexpat [-q] [-I includedir] file.hexpat
+| command | description |
+| --- | --- |
+| `hexpat [-q] [-I dir] [file]` | evaluate file (replacing the loaded ones) and show its patterns; without file show the loaded ones |
+| `hexpat+ [-I dir] file` | evaluate file and add it to the loaded ones |
+| `hexpat- [n]` | unload all loaded files (or the nth) |
+| `hexpatj [file]` | patterns as JSON (`hexpatj~{}` to indent) |
+| `hexpat* [file]` | patterns as r2 commands: flags in the `hexpat` flagspace, `Cd`/`Cs` data hints and value comments (`.hexpat*` applies them) |
+| `hexpatl[j]` | list loaded files and their top-level patterns |
+| `hexpate expr` | evaluate an expression in the context of the last loaded file (`hexpate sizeof(header)`, `hexpate $[0x10]`) |
+| `hexpat?` | help |
 
-Pattern offsets are translated to the loaded binary's base address
-(`ij.bin.baddr`), or set explicitly with `#pragma base_address 0x...`.
+Addresses are r2 addresses: pattern offsets are translated by the binary's
+base address (`ij.bin.baddr`), or `#pragma base_address 0x...`.
 
 ## Library
 
@@ -39,6 +48,8 @@ const inst = runHexpat(src, host);
 inst.dump();
 ```
 
+`toJson(inst)` serializes the placed patterns, `inst.evaluateExpression(src)`
+evaluates an expression in the global scope of an evaluated pattern and
 `BufferHost` is a ready-made host over a `Uint8Array`. `HostHooks` adds
 functions, types, pragma handlers and `in` variables, like the C++ runtime's
 `addFunction`/`addType`/`addPragma`.
@@ -67,6 +78,7 @@ regenerates the r2 goldens.
 - `lib/stdlib.ts`      - built-in `std::` functions and `std::format`
 - `lib/patterns.ts`    - pattern tree
 - `lib/memory.ts`      - host data cache, heap and `std::mem` sections
+- `lib/output.ts`      - JSON serialization and pattern walking
 - `lib/host.ts`        - host interface
 - `lib/index.ts`       - public API
 - `r2/plugin.ts`       - r2 core plugin (`hexpat` command), `R2Host`

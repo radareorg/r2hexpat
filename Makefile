@@ -1,13 +1,13 @@
-# imhexpat - ImHex pattern language for radare2 (r2js)
+# r2hexpat - ImHex pattern language library + radare2 (r2js) plugin
 #
 # Build:   make
-# Test:    make test     (unit test with mock r2 + r2 golden tests + upstream suite)
+# Test:    make test     (unit + upstream conformance under node, r2 golden tests)
 # Usage:   r2 -q -i hexpat.r2.js -c 'hexpat demo/test.hexpat' /bin/ls
 
 # BUNDLER=esbuild uses node_modules (npm ci) instead of r2frida-compile
 BUNDLER ?= r2frida-compile
 OUT     = hexpat.r2.js
-SRCS    = $(wildcard lib/*.ts)
+LIB     = $(wildcard lib/*.ts)
 ifeq ($(BUNDLER),esbuild)
 BUNDLE  = npx esbuild --bundle --format=iife --target=es2020 --log-level=warning --outfile=$@
 TSC     = npx tsc
@@ -18,10 +18,10 @@ endif
 
 all: $(OUT)
 
-$(OUT): $(SRCS)
-	$(BUNDLE) lib/index.ts
+$(OUT): r2/plugin.ts r2/r2.d.ts $(LIB)
+	$(BUNDLE) r2/plugin.ts
 
-tests/unit.js: tests/unit.ts $(SRCS)
+tests/unit.js: tests/unit.ts $(LIB)
 	$(BUNDLE) tests/unit.ts
 
 check:
@@ -29,25 +29,16 @@ check:
 
 test: test-unit test-r2 test-upstream
 
-test-upstream: $(OUT)
-	python3 tests/run_upstream.py
-
 test-unit: tests/unit.js
 	node tests/unit.js
 
+test-upstream: $(OUT)
+	python3 tests/run_upstream.py
+
 test-r2: $(OUT)
-	@echo "Running r2 integration tests..."
-	@for f in tests/*.hexpat; do \
-		echo "Testing $$f..."; \
-		r2 -q -i $(OUT) -c "hexpat $$f" tests/sample.bin > tests/r2_out.txt; \
-		if [ -f "$$f.golden" ]; then \
-			diff -u "$$f.golden" tests/r2_out.txt || exit 1; \
-		fi \
-	done
-	@rm -f tests/r2_out.txt
-	@echo "All r2 tests passed!"
+	@sh tests/run_r2.sh
 
 clean:
-	rm -f $(OUT) tests/unit.js tests/r2_out.txt
+	rm -f $(OUT) tests/*.js tests/r2_out.txt
 
-.PHONY: all check test test-unit test-r2 test-upstream clean
+.PHONY: all check test test-unit test-upstream test-r2 clean

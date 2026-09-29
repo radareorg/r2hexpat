@@ -1,0 +1,8 @@
+fib=55 kind=low high sizeof=6 type=Pair<u16, 2>
+pair (Pair<u16, 2>) @ 0x00000000 size=6
+  first (u16) @ 0x00000000 = 5500 (0x157c)
+  rest (u16[2]) @ 0x00000002 size=4
+    rest[0] (u16) @ 0x00000002 = 6439 (0x1927)
+    rest[1] (u16) @ 0x00000004 = 62935 (0xf5d7)
+ptr (u8*) @ 0x00000020 = 133 (0x85)
+  *ptr (u8) @ 0x00000085 = 74 (0x4a)

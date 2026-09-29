@@ -1,0 +1,11 @@
+lo=4 set=true mid=7 mode=Mode::On
+le_flags (Flags) @ 0x00000000 size=2
+  lo (:3) @ 0x00000000 = 4 (0x4)
+  set (bool:1) @ 0x00000000 = true
+  mid (signed:4) @ 0x00000000 = 7 (0x7)
+  mode (Mode:2) @ 0x00000001 = 1 (0x1) = Mode::On
+be_flags (Flags) @ 0x00000000 size=2
+  lo (:3) @ 0x00000000 = 3 (0x3)
+  set (bool:1) @ 0x00000000 = true
+  mid (signed:4) @ 0x00000000 = -4 (-0x4)
+  mode (Mode:2) @ 0x00000001 = 0 (0x0) = Mode::Off

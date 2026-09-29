@@ -1,5 +1,6 @@
 /** stdlib.ts - built-in functions (the `builtin::std::*` namespace). */
 import * as A from "./ast";
+import { uintN, intN } from "./bigint";
 import { Chr } from "./ast";
 import type { PatternInstance } from "./evaluator";
 import { NOT_FOUND, fmtFloat } from "./evaluator";
@@ -19,7 +20,7 @@ function toBytes(ev: PatternInstance, v: any): Uint8Array {
   if (v instanceof Pattern) return ev.readPatternBytes(v);
   if (typeof v === "string") { const b = new Uint8Array(v.length); for (let i = 0; i < v.length; i++) b[i] = v.charCodeAt(i) & 0xff; return b; }
   if (v instanceof Chr) return new Uint8Array([v.c & 0xff]);
-  let n = BigInt.asUintN(128, ev.toInt(v));
+  let n = uintN(128, ev.toInt(v));
   const b: number[] = [];
   do { b.push(Number(n & 0xffn)); n >>= 8n; } while (n > 0n);
   return new Uint8Array(b);
@@ -36,7 +37,7 @@ function readInt(ev: PatternInstance, args: any[], signed: boolean): bigint {
   let v = 0n;
   if (be) for (let i = 0; i < size; i++) v = (v << 8n) | BigInt(b[i]);
   else for (let i = size - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]);
-  return signed ? BigInt.asIntN(size * 8, v) : v;
+  return signed ? intN(size * 8, v) : v;
 }
 
 function section(ev: PatternInstance, v: any): BufferMemory {

@@ -8,6 +8,7 @@
  * section so that unions and aggregate copies behave like real memory.
  */
 import * as A from "./ast";
+import { uintN, intN } from "./bigint";
 import { Chr } from "./ast";
 import { PatternError } from "./lexer";
 import { Pattern, PKind, EnumInfo, BitMode, MAIN_SECTION, HEAP_SECTION } from "./patterns";
@@ -563,7 +564,7 @@ export class PatternInstance {
     let section = this.section;
     if (d.section !== undefined) section = this.userSection(this.toInt(this.evalExpr(d.section)));
     else if (section === HEAP_SECTION) section = MAIN_SECTION;
-    const addr = Number(BigInt.asUintN(64, off));
+    const addr = Number(uintN(64, off));
     if (section === MAIN_SECTION && (addr < 0 || addr > this.mem(MAIN_SECTION).size()))
       this.error("cannot place variable '" + d.name + "' at out of bounds address 0x" + addr.toString(16), d.loc);
     if (d.type.name === "str" && !d.array) this.error("variables of type 'str' cannot be placed in memory", d.loc);
@@ -682,7 +683,7 @@ export class PatternInstance {
       if (!fn) this.error("pointer_base function '" + fname + "' not found", pb.args[0].loc);
       addr = this.toInt(this.callFn(fn, [addr], d.loc)) + addr;
     }
-    const target = Number(BigInt.asUintN(64, addr));
+    const target = Number(uintN(64, addr));
     ptr.override = undefined;
     this.cursor = target;
     let pointee: Pattern;
@@ -842,7 +843,7 @@ export class PatternInstance {
     let v = 0n;
     if (p.be) for (let i = 0; i < b.length; i++) v = (v << 8n) | BigInt(b[i]);
     else for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(b[i]);
-    return signed ? BigInt.asIntN(p.size * 8, v) : v;
+    return signed ? intN(p.size * 8, v) : v;
   }
 
   private readScalar(p: Pattern, kind: string): any {
@@ -904,7 +905,7 @@ export class PatternInstance {
       case "bitfield_field": {
         const v = this.readBitsValue(p);
         if (p.fieldKind === "bool") return v !== 0n;
-        if (p.fieldKind === "signed") return BigInt.asIntN(p.bits, v);
+        if (p.fieldKind === "signed") return intN(p.bits, v);
         return v;
       }
       case "pointer": return this.readInt(p, p.fieldKind === "signed");
@@ -914,7 +915,7 @@ export class PatternInstance {
 
   private encodeInt(v: bigint, size: number, be: boolean): Uint8Array {
     const b = new Uint8Array(size);
-    let x = BigInt.asUintN(size * 8, v);
+    let x = uintN(size * 8, v);
     for (let i = 0; i < size; i++) { b[be ? size - 1 - i : i] = Number(x & 0xffn); x >>= 8n; }
     return b;
   }
@@ -978,15 +979,15 @@ export class PatternInstance {
   /** Convert a value to the representation of a scalar pattern kind. */
   private convertFor(p: Pattern, v: any): any {
     switch (p.kind) {
-      case "unsigned": case "enum": case "pointer": return p.fieldKind === "signed" ? BigInt.asIntN(p.size * 8, this.toInt(v)) : BigInt.asUintN(p.size * 8, this.toInt(v));
-      case "signed": return BigInt.asIntN(p.size * 8, this.toInt(v));
+      case "unsigned": case "enum": case "pointer": return p.fieldKind === "signed" ? intN(p.size * 8, this.toInt(v)) : uintN(p.size * 8, this.toInt(v));
+      case "signed": return intN(p.size * 8, this.toInt(v));
       case "float": return p.size === 4 ? Math.fround(this.toFloat(v)) : this.toFloat(v);
       case "bool": return this.truthy(v);
-      case "char": return new Chr(Number(BigInt.asUintN(8, this.toInt(v))));
-      case "char16": return new Chr(Number(BigInt.asUintN(16, this.toInt(v))), true);
+      case "char": return new Chr(Number(uintN(8, this.toInt(v))));
+      case "char16": return new Chr(Number(uintN(16, this.toInt(v))), true);
       case "bitfield_field":
         if (p.fieldKind === "bool") return this.truthy(v);
-        return p.fieldKind === "signed" ? BigInt.asIntN(p.bits, this.toInt(v)) : BigInt.asUintN(p.bits, this.toInt(v));
+        return p.fieldKind === "signed" ? intN(p.bits, this.toInt(v)) : uintN(p.bits, this.toInt(v));
     }
     return v;
   }
@@ -1132,7 +1133,7 @@ export class PatternInstance {
     return this.cursorBig !== undefined && Number(this.cursorBig) === this.cursor ? this.cursorBig : BigInt(this.cursor);
   }
   setDollar(v: bigint): void {
-    const u = BigInt.asUintN(64, v);
+    const u = uintN(64, v);
     this.cursor = Number(u);
     this.cursorBig = u > 9007199254740991n ? u : undefined;
   }
@@ -1243,7 +1244,7 @@ export class PatternInstance {
       }
       case "index": {
         if (e.obj.k === "dollar") {
-          const a = Number(BigInt.asUintN(64, this.toInt(this.decay(this.evalExpr(e.idx)))));
+          const a = Number(uintN(64, this.toInt(this.decay(this.evalExpr(e.idx)))));
           const b = this.mem(this.section).read(a, 1);
           return BigInt(b[0]);
         }
@@ -1351,14 +1352,14 @@ export class PatternInstance {
       if (typeof v === "string") this.error("cannot cast a string to " + type, loc);
       const bits = INT_TYPES[type] * 8;
       const n = this.toInt(v);
-      return type[0] === "s" ? BigInt.asIntN(bits, n) : BigInt.asUintN(bits, n);
+      return type[0] === "s" ? intN(bits, n) : uintN(bits, n);
     }
     switch (type) {
       case "float": return Math.fround(this.toFloat(v));
       case "double": case "float16": return this.toFloat(v);
       case "bool": return this.truthy(v);
-      case "char": return new Chr(Number(BigInt.asUintN(8, this.toInt(v))));
-      case "char16": return new Chr(Number(BigInt.asUintN(16, this.toInt(v))), true);
+      case "char": return new Chr(Number(uintN(8, this.toInt(v))));
+      case "char16": return new Chr(Number(uintN(16, this.toInt(v))), true);
       case "str": return this.toStr(v);
     }
     return v;

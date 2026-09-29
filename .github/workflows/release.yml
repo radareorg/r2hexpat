@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ['[0-9]*']
+
+permissions:
+  contents: write
+
+env:
+  R2V: 6.2.2
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: radareorg/github-actions@v3
+        with:
+          version: ${{ env.R2V }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: make BUNDLER=esbuild
+      - name: Test
+        run: make BUNDLER=esbuild test
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: hexpat.r2.js

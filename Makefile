@@ -24,21 +24,31 @@ $(OUT): r2/plugin.ts r2/r2.d.ts $(LIB)
 tests/unit.js: tests/unit.ts $(LIB)
 	$(BUNDLE) tests/unit.ts
 
+tests/testlib.js: tests/testlib.ts tests/upstream_hooks.ts $(LIB)
+	$(BUNDLE) tests/testlib.ts
+
+tests/upstream.r2.js: tests/upstream_r2.ts tests/upstream_hooks.ts $(LIB)
+	$(BUNDLE) tests/upstream_r2.ts
+
 check:
 	$(TSC) -p .
 
-test: test-unit test-r2 test-upstream
+test: test-unit test-upstream test-r2 test-upstream-r2
 
 test-unit: tests/unit.js
 	node tests/unit.js
 
-test-upstream: $(OUT)
-	python3 tests/run_upstream.py
+test-upstream: tests/testlib.js
+	node tests/upstream.mjs $(ARGS)
 
 test-r2: $(OUT)
 	@sh tests/run_r2.sh
 
+# the upstream suite again, inside radare2's QuickJS (single r2 process)
+test-upstream-r2: tests/upstream.r2.js
+	@cd tests/upstream && r2 -q -i ../upstream.r2.js test_data.bin > ../r2_out.txt 2>&1; cat ../r2_out.txt; ! grep -q -e '^FAIL' -e internal: ../r2_out.txt
+
 clean:
 	rm -f $(OUT) tests/*.js tests/r2_out.txt
 
-.PHONY: all check test test-unit test-upstream test-r2 clean
+.PHONY: all check test test-unit test-upstream test-r2 test-upstream-r2 clean

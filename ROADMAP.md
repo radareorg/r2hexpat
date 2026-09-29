@@ -1,51 +1,37 @@
 # ImHex Pattern Language for radare2 - Roadmap
 
-1:1 parity with the official ImHex implementation (ref: [pattern_language](https://github.com/WerWolv/ImHex-Patterns), C++/Go/Rust impls), verified by a golden-file test suite driven by r2 oneliners.
+1:1 parity with the official ImHex implementation (ref: [PatternLanguage](https://github.com/WerWolv/PatternLanguage),
+C++/Go/Rust impls in `third_party/`), verified by the upstream conformance
+suite (`tests/upstream`, 81/81 passing under node and inside r2) and r2
+golden tests.
 
 ## ✅ Done & Tested
-- [x] Core Lexer & Parser (recursive descent)
-- [x] Scalar types: `u8/u16/u32/u64/u128`, `i8/i16/i32/i64/i128`, `float/double/float16`, `char`, `bool`, `padding`
-- [x] Exact 64/128-bit reads via `BigInt` (no double precision loss)
-- [x] Structs & unions (incl. inside arrays, arrays of structs with per-element names/sizes)
-- [x] Placements `@` (absolute, relative, expr-based) — cursor advances to end of placed var
-- [x] Arithmetic/comparison/logical expressions, ternary `?:`
-- [x] `if`/`else`, bounded `while` incl. pattern placement inside branches/loops
-- [x] Local vars & assignment (`u32 x = 0;`, `x = x + 1;`) with scope-aware update
-- [x] Fixed arrays `u8 a[N]` (scalars, structs), sentinel while-arrays `u8 a[while(...)]`
-- [x] `using T = u32;`, `enum` (parse+read), `bitfield` (parse+read, no field decode)
-- [x] Namespaces `namespace NS { }; NS::T x;`
-- [x] `sizeof()`, string/strz reads
-- [x] Base-address translation (`ij.bin.baddr`), `p8`-based memory reads
-- [x] Test suite: `make test` (node mock) + `make test-r2` (golden files vs `tests/sample.bin`)
+- [x] Lexer: BigInt literals (`U`/`F`/`D` suffixes, hex/bin/oct), full escape set incl. `\u`/`\U` (UTF-8), escape errors
+- [x] Preprocessor: `#define`, `#undef`, `#ifdef`/`#ifndef`/`#else`/`#endif`, `#include`, `#pragma`, `#error`
+- [x] Scalars `u8..u128`, `s8..s128` (incl. 24/48/96-bit), `float/double/float16`, `char/char16`, `bool`, `str`, `padding`
+- [x] Structs, unions, inheritance, enums (auto values, ranges, formatting), bitfields (LE/BE bit order, `bitfield_order`, signed/bool/enum fields, nested and arrays)
+- [x] Arrays: fixed, `while(...)`, null-terminated `[]`, lazy static arrays, char arrays as strings, bounds errors
+- [x] Pointers (`T *p : u32`), pointer arrays, `pointer_base`
+- [x] Placements `@` with `in section`, global cursor semantics, u64 `$` arithmetic, `$[addr]`
+- [x] Local variables in a zeroed heap (memory-backed: union overlap, aggregate copies, `auto` copies)
+- [x] Templates (type and `auto` value parameters, alias templates, forward declarations), `typenameof` display names
+- [x] Namespaces (incl. `namespace auto`), `using`, `import X as Y`, `import * from X as T`, `#include` with `#pragma once`
+- [x] Control flow: `if`, `while`, `for`, `match` (ranges, alternatives, ambiguity error), `break`/`continue`/`return`, `try`/`catch`
+- [x] Functions: defaults, `ref` params, parameter packs, recursion, `main` entry point
+- [x] Attributes: `format`, `transform`, `fixed_size`, `no_unique_address`, `sealed`, `hidden`, `name`, `comment`, `color`, `export`
+- [x] Built-in std: `assert`, `print`, `format` (fmt specs), `std::mem` (sections, reads), `std::core`, `std::string`, `std::math`
+- [x] Semantic errors: redeclarations, const assignment, division by zero, bad string ops, arity, undefined functions
+- [x] Host-independent library (`HexpatHost`), r2 plugin in `r2/`, paged reads (4K `p8`)
 
-## 🐛 Bugs to Fix (found by probes)
-- [ ] **strz doesn't advance cursor** — size must be strlen+1, not static 0
-- [ ] **String dump mangles output** — escape control chars (`\n`, `\r`, non-printables) in dump
-- [ ] **Unsized arrays `u8 rest[];` read as single element** — must read until EOF
-- [ ] **Enum displays raw value** — resolve and show matching constant name (`E::A`)
-- [ ] **Bitfields don't decode fields** — `bitfield BF { a: 3, b: 5 };` must expose a/b members
-
-## 🚀 Phase 1: Language Completeness
-- [ ] **`for` loops** — `for (u32 i = 0; i < n; i = i + 1) { ... }` (parse error today)
-- [ ] **`fn` definitions & calls** — `fn f(u8 x) { return x + 1; }` (param parse broken)
-- [ ] **`match` statements** — `match (x) { 1: {...} 2: {...} }` (parse error today)
-- [ ] **Pointer semantics** — `u8 *p;` must read pointer-sized address, create deref'd pattern at target
-- [ ] **`import std;`** — currently parse error (`import "file"` only); tolerate namespace imports
-- [ ] **`break`/`continue` in loops** (parse; verify runtime)
-- [ ] **Attributes `[[...]]`** — parsed, ignored; apply color/format in dump (low priority)
-
-## 🚀 Phase 2: std Library Parity
-- [ ] `std::string` (with encodings), `std::vector` (fixed/dynamic)
-- [ ] Core fns: `std::print`, `std::format`, `std::assert`, `std::has_attribute`
-- [ ] `std::mem` helpers (`std::mem::size`, `std::mem::eof`)
-
-## 🚀 Phase 3: r2 Integration Polish
+## 🚀 Next
+- [ ] Load the real ImHex std library (`import std.mem;` etc. from an ImHex-Patterns checkout via `-I`); today `std`/`type`/`hex` imports are ignored when not found and only the built-in subset is available
+- [ ] Verify pattern trees of the upstream tests (the C++ suite compares them; we only check evaluation succeeds/fails)
 - [ ] JSON output mode (`hexpatj`) for scripting
-- [ ] Push types into r2's type database (`td`) and link at addresses (`tl`) — API stubs exist, unused
-- [ ] Error messages with line:col on all paths
-- [ ] Performance: batch `p8` reads (windowed caching) instead of per-byte commands
+- [ ] Push types into r2's type database (`td`) and link at addresses (`tl`), flags per pattern
+- [ ] Remaining attributes: `inline`, `single_color`, `format_entries`, `transform_entries`, visualizers (parsed and stored, not applied)
+- [ ] `std::hash`, `std::time`, `std::random`, `std::file` builtins
 
 ## 🧪 Testing Strategy
-1. Every feature: new `tests/syntax_*.hexpat` + `.golden`, run via `make test-r2`
-2. Goldens verified against ground truth (`r2 -c 'p8'` / `pf`)
-3. `make test` node harness for AST/runtime units
+1. Upstream behaviour first: `tests/upstream` (re-extract with `tests/extract_upstream.py`)
+2. r2 integration: `tests/*.hexpat` + `.golden`, values checked against `p8`/`xxd` ground truth
+3. Every new feature: a golden test or an upstream-style assert test

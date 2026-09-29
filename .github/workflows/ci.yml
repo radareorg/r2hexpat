@@ -34,7 +34,9 @@ jobs:
         run: make BUNDLER=esbuild
       - name: Unit tests
         run: make BUNDLER=esbuild test-unit
+      - name: Upstream conformance suite (node)
+        run: make BUNDLER=esbuild test-upstream
       - name: r2 golden tests
         run: make BUNDLER=esbuild test-r2
-      - name: Upstream conformance suite
-        run: make BUNDLER=esbuild test-upstream
+      - name: Upstream conformance suite (inside r2)
+        run: make BUNDLER=esbuild test-upstream-r2

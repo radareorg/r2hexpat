@@ -65,6 +65,10 @@ functions, types, pragma handlers and `in` variables, like the C++ runtime's
     make test-r2            # r2 golden tests: tests/*.hexpat vs .golden on tests/sample.bin
     make test-upstream-r2   # upstream suite inside r2's QuickJS (one r2 process)
 
+`make test-corpus CORPUS=path/to/ImHex-Patterns` parses the whole
+[ImHex-Patterns](https://github.com/WerWolv/ImHex-Patterns) corpus and
+evaluates every pattern that ships sample data.
+
 The conformance suite (`tests/upstream/`) holds the tests of the reference
 C++ implementation, extracted by `tests/extract_upstream.py` from
 `third_party/parser_cpp` and run against its `test_data`. Tests expected to
@@ -84,3 +88,4 @@ regenerates the r2 goldens.
 - `lib/host.ts`        - host interface
 - `lib/index.ts`       - public API
 - `r2/plugin.ts`       - r2 core plugin (`hexpat` command), `R2Host`
+- `docs/imhex-vs-r2-ctypes.md` - how ImHex patterns and r2's C types differ

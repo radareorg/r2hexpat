@@ -2,8 +2,9 @@
 
 1:1 parity with the official ImHex implementation (ref: [PatternLanguage](https://github.com/WerWolv/PatternLanguage),
 C++/Go/Rust impls in `third_party/`), verified by the upstream conformance
-suite (`tests/upstream`, 81/81 passing under node and inside r2) and r2
-golden tests.
+suite (`tests/upstream`, 81/81 passing under node and inside r2), r2 golden
+tests and the ImHex-Patterns corpus (`make test-corpus`: 358/358 files parse,
+205/205 samples evaluate).
 
 ## ✅ Done & Tested
 - [x] Lexer: BigInt literals (`U`/`F`/`D` suffixes, hex/bin/oct), full escape set incl. `\u`/`\U` (UTF-8), escape errors
@@ -25,11 +26,13 @@ golden tests.
 - [x] r2 commands: `hexpatj` (JSON), `hexpat*` (flags, data hints, comments), `hexpatl`, `hexpate` (expressions), `hexpat+`/`hexpat-` (several loaded files), `hexpat?`
 
 ## 🚀 Next
-- [ ] Load the real ImHex std library (`import std.mem;` etc. from an ImHex-Patterns checkout via `-I`); today `std`/`type`/`hex` imports are ignored when not found and only the built-in subset is available
+- [x] The real ImHex std/type libraries load from an ImHex-Patterns checkout (`hexpat -I .../includes`); all `builtin::std` functions they use exist except `std::file` (no filesystem access)
 - [ ] Verify pattern trees of the upstream tests (the C++ suite compares them; we only check evaluation succeeds/fails)
 - [ ] Push types into r2's type database (`td`) and link at addresses (`tl`)
 - [ ] Remaining attributes: `inline`, `single_color`, `format_entries`, `transform_entries`, visualizers (parsed and stored, not applied)
-- [ ] `std::hash`, `std::time`, `std::random`, `std::file` builtins
+- [ ] `hex::*` editor-only functions (decompressors, http, virtual files)
+- [ ] Compare pattern trees value by value against the C++ runtime on the corpus samples
+- [ ] Export concrete (evaluated) layouts as C types for `tl` (needs exact packed layouts in r2's C types, see docs/imhex-vs-r2-ctypes.md)
 
 ## 🧪 Testing Strategy
 1. Upstream behaviour first: `tests/upstream` (re-extract with `tests/extract_upstream.py`)

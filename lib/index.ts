@@ -12,6 +12,8 @@ import * as A from "./ast";
 export { parse, PatternInstance, PatternError, BufferHost };
 export type { HexpatHost, HostHooks };
 export { Pattern } from "./patterns";
+export { toJson, patternToJson, walkPatterns, jsonValue } from "./output";
+export type { PatternJson, JsonOptions } from "./output";
 
 export interface RunOptions {
   name?: string;       // source name for error messages and relative includes

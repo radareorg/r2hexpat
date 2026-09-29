@@ -23,3 +23,12 @@ const magic = inst.value(header.children[0]);
 console.log("[test] magic value: " + magic + " expected 1179403647 (0x464c457f)");
 if (magic !== 0x464c457fn) throw new Error("magic mismatch!");
 console.log("[test] OK");
+
+// JSON serialization
+import { toJson } from "../lib/index";
+const js = JSON.stringify(toJson(inst, { base: 0x1000 }));
+console.log("[test] json: " + js);
+const parsed = JSON.parse(js);
+if (parsed[0].name !== "header" || parsed[0].addr !== 0x1000 || parsed[0].children[0].value !== 0x464c457f) throw new Error("json mismatch!");
+if (parsed[1].name !== "checksum" || parsed[1].value !== 0xddccbbaa) throw new Error("json checksum mismatch!");
+console.log("[test] JSON OK");

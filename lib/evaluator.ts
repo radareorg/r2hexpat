@@ -11,6 +11,7 @@ import * as A from "./ast";
 import { uintN, intN } from "./bigint";
 import { Chr } from "./ast";
 import { PatternError } from "./lexer";
+import { parseExpression } from "./parser";
 import { Pattern, PKind, EnumInfo, BitMode, MAIN_SECTION, HEAP_SECTION } from "./patterns";
 import { Memory, BufferMemory, SparseMemory } from "./memory";
 import { callBuiltin, formatString } from "./stdlib";
@@ -1537,14 +1538,17 @@ export class PatternInstance {
   }
 
   // ------------------------------------------------------------------ dump
-  dump(print: (s: string) => void = (s) => console.log(s)): void {
+  /** Print the pattern tree; `base` is added to displayed addresses. */
+  dump(print: (s: string) => void = (s) => console.log(s), base = 0): void {
+    this.dumpBase = base;
     for (const p of this.patterns) this.dumpPattern(p, 0, print, p.name);
   }
+  private dumpBase = 0;
 
   private dumpPattern(p: Pattern, indent: number, print: (s: string) => void, name: string): void {
     if (p.hidden) return;
     const pad = "".padStart(indent * 2, " ");
-    const addr = p.local ? "local" : "0x" + p.offset.toString(16).padStart(8, "0");
+    const addr = p.local ? "local" : "0x" + (this.dumpBase + p.offset).toString(16).padStart(8, "0");
     const type = p.kind === "bitfield_field" ? p.typeName + ":" + p.bits : p.typeName;
     let line = pad + name + " (" + type + ") @ " + addr;
     if (p.kind === "pointer") {
@@ -1575,6 +1579,37 @@ export class PatternInstance {
     }
     return this.formatValue(this.value(p));
   }
+
+  /** Evaluate an expression in the global scope of this (already evaluated) instance. */
+  evaluateExpression(src: string): any {
+    const e = parseExpression(src, this.types.keys());
+    if (!this.global) {
+      const root = new Scope();
+      this.global = { scope: root, root, kind: "global", ns: [], binds: new Map() };
+    }
+    this.frames = [this.global];
+    return this.evalExpr(e);
+  }
+
+  /** Human readable rendering of any runtime value (dump style). */
+  describe(v: any, base = 0): string {
+    if (v instanceof Pattern) {
+      const lines: string[] = [];
+      this.dumpBase = base;
+      this.dumpPattern(v, 0, (s) => lines.push(s), v.name || "<value>");
+      return lines.join("\n");
+    }
+    if (v instanceof TypeValue) return this.typeDisplay(v.t);
+    if (v instanceof Pack) return v.items.map((x) => this.describe(x)).join(", ");
+    if (v instanceof Array) return "{ " + v.map((x) => this.describe(x)).join(", ") + " }";
+    if (v instanceof Chr) return quote(String.fromCharCode(v.c)).replace(/^"|"$/g, "'");
+    if (v === undefined) return "";
+    return this.formatValue(v);
+  }
+
+  /** Names of the types known to this instance (for listing and completion). */
+  typeNames(): string[] { return Array.from(this.types.keys()).filter((n) => this.types.get(n)!.s !== "fn"); }
+  functionNames(): string[] { return Array.from(this.fns.keys()); }
 
   private formatValue(v: any): string {
     if (typeof v === "bigint") return fmtInt(v);

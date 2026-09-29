@@ -22,7 +22,7 @@ interface ImportState { seen: Set<string>; resolve?: SourceResolver; pragmas: [s
 class Parser {
   private i = 0;
   private ns: string[] = [];
-  private types = new Set<string>(); // names known to be types (for `sizeof(T<..>)`)
+  types = new Set<string>(); // names known to be types (for `sizeof(T<..>)`)
   constructor(private toks: Token[], private st: ImportState, private importAlias?: string) {}
 
   // ---- token helpers ----
@@ -677,6 +677,11 @@ class Parser {
     while (p.peek().k !== "eof") p.statement(out);
   }
 
+  expectEnd(): void {
+    this.acceptOp(";");
+    if (this.peek().k !== "eof") this.err("unexpected trailing input");
+  }
+
   parseAll(): A.Stmt[] {
     const out: A.Stmt[] = [];
     while (this.peek().k !== "eof") {
@@ -710,4 +715,15 @@ export function parseProgram(src: string, name = "", resolve?: SourceResolver): 
 
 export function parse(src: string, name = "", resolve?: SourceResolver): A.Program {
   return parseProgram(src, name, resolve);
+}
+
+/** Parse a single expression (used to evaluate expressions against a loaded pattern). */
+export function parseExpression(src: string, knownTypes: Iterable<string> = []): A.Expr {
+  const pre = preprocess(src, "<expr>");
+  const st: ImportState = { seen: new Set(), pragmas: pre.pragmas, defines: new Map(), once: new Set() };
+  const p = new Parser(pre.tokens, st);
+  for (const t of knownTypes) p.types.add(t);
+  const e = p.parseExpr();
+  p.expectEnd();
+  return e;
 }

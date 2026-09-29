@@ -18,11 +18,12 @@ export type { PatternJson, JsonOptions } from "./output";
 export interface RunOptions {
   name?: string;       // source name for error messages and relative includes
   hooks?: HostHooks;   // extra functions, types, pragma handlers, in-variables
+  defines?: string[];  // predefined preprocessor symbols
 }
 
 /** Parse a pattern source (resolving #include / import through the host). */
-export function compile(src: string, host?: HexpatHost, name = "<source>"): A.Program {
-  return parse(src, name, host && host.resolve ? (p, from) => host.resolve!(p, from) : undefined);
+export function compile(src: string, host?: HexpatHost, name = "<source>", defines: string[] = []): A.Program {
+  return parse(src, name, host && host.resolve ? (p, from) => host.resolve!(p, from) : undefined, defines);
 }
 
 /** Evaluate a parsed program against the host data. */
@@ -34,7 +35,7 @@ export function evaluate(program: A.Program, host: HexpatHost, hooks?: HostHooks
 
 /** Parse and evaluate a hexpat source. Synchronous. */
 export function runHexpat(src: string, host: HexpatHost, opts: RunOptions = {}): PatternInstance {
-  return evaluate(compile(src, host, opts.name), host, opts.hooks);
+  return evaluate(compile(src, host, opts.name, opts.defines), host, opts.hooks);
 }
 
 /** Value of a pragma (last one wins), e.g. pragma(program, "base_address"). */

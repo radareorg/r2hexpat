@@ -48,7 +48,12 @@ test-r2: $(OUT)
 test-upstream-r2: tests/upstream.r2.js
 	@cd tests/upstream && R2_NOPLUGINS=1 R2_COLOR=0 r2 -q -i ../upstream.r2.js test_data.bin > ../r2_out.txt 2>&1; cat ../r2_out.txt; ! grep -q -e '^FAIL' -e internal: ../r2_out.txt
 
+# the ImHex-Patterns corpus: make test-corpus CORPUS=path/to/ImHex-Patterns [ARGS=-v]
+test-corpus: tests/testlib.js
+	@test -n "$(CORPUS)" || (echo 'usage: make test-corpus CORPUS=path/to/ImHex-Patterns' && false)
+	node tests/corpus.mjs $(ARGS) $(CORPUS)
+
 clean:
 	rm -f $(OUT) tests/*.js tests/r2_out.txt
 
-.PHONY: all check test test-unit test-upstream test-r2 test-upstream-r2 clean
+.PHONY: all check test test-unit test-upstream test-r2 test-upstream-r2 test-corpus clean

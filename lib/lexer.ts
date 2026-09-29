@@ -66,9 +66,9 @@ export function toUtf8(s: string): string {
 }
 
 /** Tokenize a single source text (no preprocessing). */
-export function lex(src: string, srcName = ""): Token[] {
+export function lex(src: string, srcName = "", firstLine = 1): Token[] {
   const toks: Token[] = [];
-  let i = 0, line = 1, lineStart = 0;
+  let i = 0, line = firstLine, lineStart = 0;
   const err = (msg: string): never => { throw new PatternError(msg, { line, col: i - lineStart + 1, src: srcName }); };
   const hexDigits = (n: number): number => {
     const s = src.substr(i, n);
@@ -199,8 +199,8 @@ export interface Preprocessed {
  * #include, #pragma, #error) and tokenize the result.
  */
 export function preprocess(src: string, name: string, resolve?: SourceResolver,
-  state?: { defines: Map<string, Token[]>; once: Set<string>; pragmas: [string, string][] }): Preprocessed {
-  const st = state || { defines: new Map<string, Token[]>(), once: new Set<string>(), pragmas: [] };
+  state?: { defines: Map<string, string>; once: Set<string>; pragmas: [string, string][] }): Preprocessed {
+  const st = state || { defines: new Map<string, string>(), once: new Set<string>(), pragmas: [] };
   const out: Token[] = [];
   const lines = src.split("\n");
   const cond: boolean[] = [];
@@ -209,13 +209,16 @@ export function preprocess(src: string, name: string, resolve?: SourceResolver,
   let chunkLine = 1;
   const flush = (nextLine: number) => {
     if (chunk.length) {
-      const toks = lex(chunk.join("\n"), name);
+      const toks = lex(chunk.join("\n"), name, chunkLine);
       toks.pop();
       for (const t of toks) {
-        t.line += chunkLine - 1;
         const d = t.k === "id" ? st.defines.get(t.t) : undefined;
-        if (d) for (const dt of d) out.push({ ...dt, line: t.line, col: t.col });
-        else out.push(t);
+        if (d !== undefined) {
+          // define bodies are lexed where they are used, like a text substitution
+          const dt = lex(d, name, t.line);
+          dt.pop();
+          for (const x of dt) out.push({ ...x, col: t.col });
+        } else out.push(t);
       }
     }
     chunk = [];
@@ -240,9 +243,7 @@ export function preprocess(src: string, name: string, resolve?: SourceResolver,
         case "define": {
           const dm = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*(.*)$/);
           if (!dm) throw new PatternError("invalid #define", where);
-          const toks = lex(dm[2], name);
-          toks.pop();
-          st.defines.set(dm[1], toks);
+          st.defines.set(dm[1], dm[2]);
           break;
         }
         case "undef": st.defines.delete(arg); break;

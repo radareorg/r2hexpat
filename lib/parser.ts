@@ -17,13 +17,18 @@ const PREC: string[][] = [
 const LEVEL_BOR = 3;
 const ASSIGN_OPS = new Set(["=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^="]);
 
-interface ImportState { seen: Set<string>; resolve?: SourceResolver; pragmas: [string, string][]; defines: Map<string, Token[]>; once: Set<string>; }
+interface ImportState { seen: Set<string>; resolve?: SourceResolver; pragmas: [string, string][]; defines: Map<string, string>; once: Set<string>; }
 
 class Parser {
   private i = 0;
   private ns: string[] = [];
   types = new Set<string>(); // names known to be types (for `sizeof(T<..>)`)
-  constructor(private toks: Token[], private st: ImportState, private importAlias?: string) {}
+  private noGt = 0;   // inside template arguments: '>' closes the list
+  private noBor = 0;  // inside match cases: '|' separates alternatives
+  private toks: Token[];
+  constructor(toks: Token[], private st: ImportState, private importAlias?: string) {
+    this.toks = mergeScopes(toks);
+  }
 
   // ---- token helpers ----
   private peek(n = 0): Token { return this.toks[Math.min(this.i + n, this.toks.length - 1)]; }
@@ -80,7 +85,8 @@ class Parser {
         args.push(this.parseType());
       } else {
         // an expression; relational '>' closes the list, so parse above that level
-        args.push(this.parseBinary(9));
+        this.noGt++;
+        try { args.push(this.parseTernary()); } finally { this.noGt--; }
       }
       if (this.acceptOp(",")) continue;
       // `>>` closes two template lists
@@ -150,6 +156,8 @@ class Parser {
     for (;;) {
       const p = this.peek();
       if (p.k !== "op" || PREC[level].indexOf(p.t) < 0) break;
+      if (this.noGt && (p.t === ">" || p.t === ">=" || p.t === ">>")) break;
+      if (this.noBor && p.t === "|") break;
       this.i++;
       const r = this.parseBinary(level + 1);
       l = { k: "bin", op: p.t, l, r, loc: this.loc(p) };
@@ -207,7 +215,12 @@ class Parser {
       }
       case "char": return { k: "lit", v: new A.Chr(t.t.charCodeAt(0)), loc };
       case "op":
-        if (t.t === "(") { const e = this.parseExpr(); this.expectOp(")"); return e; }
+        if (t.t === "(") {
+          // parentheses lift the template-argument and match-case restrictions
+          const sg = this.noGt, sb = this.noBor;
+          this.noGt = 0; this.noBor = 0;
+          try { const e = this.parseExpr(); this.expectOp(")"); return e; } finally { this.noGt = sg; this.noBor = sb; }
+        }
         if (t.t === "$") return { k: "dollar", loc };
         if (t.t === "{") {
           const items: A.Expr[] = [];
@@ -418,9 +431,12 @@ class Parser {
         } else {
           const alts: { lo: A.Expr; hi?: A.Expr }[] = [];
           for (;;) {
-            const lo = this.parseBinary(LEVEL_BOR + 1);
-            let hi: A.Expr | undefined;
-            if (this.acceptOp("...")) hi = this.parseBinary(LEVEL_BOR + 1);
+            this.noBor++;
+            let lo: A.Expr, hi: A.Expr | undefined;
+            try {
+              lo = this.parseTernary();
+              if (this.acceptOp("...")) hi = this.parseTernary();
+            } finally { this.noBor--; }
             alts.push({ lo, hi });
             if (!this.acceptOp("|")) break;
           }
@@ -668,8 +684,10 @@ class Parser {
     }
     const key = res.name + "|" + (alias || "");
     if (this.st.seen.has(key)) return;
+    // `#pragma once` is shared with #include for plain imports; aliased imports are keyed by alias
+    if (!alias && this.st.once.has(res.name)) return;
     this.st.seen.add(key);
-    const sub = preprocess(res.src, res.name, this.st.resolve, { defines: this.st.defines, once: new Set(), pragmas: this.st.pragmas });
+    const sub = preprocess(res.src, res.name, this.st.resolve, { defines: this.st.defines, once: alias ? new Set() : this.st.once, pragmas: this.st.pragmas });
     sub.tokens.push({ k: "eof", t: "", line: 0, col: 0, src: res.name });
     const p = new Parser(sub.tokens, this.st, alias);
     p.types = this.types;
@@ -692,6 +710,22 @@ class Parser {
   }
 }
 
+/** Join `A :: B` (scope operator written with spaces) into a single identifier token. */
+function mergeScopes(toks: Token[]): Token[] {
+  const out: Token[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    const prev = out[out.length - 1];
+    if (t.k === "op" && t.t === "::" && prev && prev.k === "id" && toks[i + 1] && toks[i + 1].k === "id") {
+      out[out.length - 1] = { ...prev, t: prev.t + "::" + toks[i + 1].t };
+      i++;
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
+}
+
 /** Reject duplicate member names declared directly in a struct/union/bitfield body. */
 function checkMembers(body: A.Stmt[]): void {
   const seen = new Set<string>();
@@ -706,15 +740,19 @@ function checkMembers(body: A.Stmt[]): void {
 }
 
 /** Preprocess and parse a pattern source into a Program. */
-export function parseProgram(src: string, name = "", resolve?: SourceResolver): A.Program {
-  const pre = preprocess(src, name, resolve);
-  const st: ImportState = { seen: new Set(), resolve, pragmas: pre.pragmas, defines: new Map(), once: new Set() };
+export function parseProgram(src: string, name = "", resolve?: SourceResolver, defines: string[] = []): A.Program {
+  const dm = new Map<string, string>();
+  for (const d of defines) dm.set(d, "");
+  const once = new Set<string>();
+  const pre = { ...preprocess(src, name, resolve, { defines: dm, once, pragmas: [] }), once };
+  pre.tokens.push({ k: "eof", t: "", line: 0, col: 0, src: name });
+  const st: ImportState = { seen: new Set(), resolve, pragmas: pre.pragmas, defines: dm, once: pre.once };
   const body = new Parser(pre.tokens, st).parseAll();
   return { pragmas: pre.pragmas, body };
 }
 
-export function parse(src: string, name = "", resolve?: SourceResolver): A.Program {
-  return parseProgram(src, name, resolve);
+export function parse(src: string, name = "", resolve?: SourceResolver, defines: string[] = []): A.Program {
+  return parseProgram(src, name, resolve, defines);
 }
 
 /** Parse a single expression (used to evaluate expressions against a loaded pattern). */

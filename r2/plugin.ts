@@ -192,7 +192,12 @@ function hexpatCommand(cmd: string): void {
       case "?": case "h": for (const l of HELP) out.push(l); break;
       case "": case " ":
         if (args.indexOf("-h") >= 0 || args.indexOf("--help") >= 0) { for (const l of HELP) out.push(l); break; }
-        for (const s of target(args)) s.instance.dump(out.push, s.host.baseAddress);
+        const targets = target(args);
+        if (targets.length === 0 && args.length === 0) {
+          out.push("no patterns loaded, run 'hexpat?' for help");
+        } else {
+          for (const s of targets) s.instance.dump(out.push, s.host.baseAddress);
+        }
         break;
       case "+": {
         const a = parseArgs(args);

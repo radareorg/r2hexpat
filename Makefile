@@ -46,7 +46,7 @@ test-r2: $(OUT)
 
 # the upstream suite again, inside radare2's QuickJS (single r2 process)
 test-upstream-r2: tests/upstream.r2.js
-	@cd tests/upstream && r2 -q -i ../upstream.r2.js test_data.bin > ../r2_out.txt 2>&1; cat ../r2_out.txt; ! grep -q -e '^FAIL' -e internal: ../r2_out.txt
+	@cd tests/upstream && R2_NOPLUGINS=1 R2_COLOR=0 r2 -q -i ../upstream.r2.js test_data.bin > ../r2_out.txt 2>&1; cat ../r2_out.txt; ! grep -q -e '^FAIL' -e internal: ../r2_out.txt
 
 clean:
 	rm -f $(OUT) tests/*.js tests/r2_out.txt

@@ -2,6 +2,8 @@
 # r2 integration tests: tests/*.hexpat evaluated by the plugin on tests/sample.bin,
 # compared with tests/*.hexpat.golden. Usage: run_r2.sh [-u]  (-u rewrites goldens)
 cd "$(dirname "$0")/.." || exit 1
+# skip loading user plugins and colors: r2 starts ~3x faster
+export R2_NOPLUGINS=1 R2_COLOR=0
 fail=0
 for f in tests/*.hexpat; do
 	out=$(r2 -q -e scr.color=0 -i hexpat.r2.js -c "hexpat $f" tests/sample.bin 2>&1)

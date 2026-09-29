@@ -23,9 +23,9 @@ export class TypeValue { constructor(public t: CType) {} }
 
 /** A resolved (concrete) type. */
 export type CType =
-  | { t: "builtin"; name: string; size: number; be?: boolean }
-  | { t: "decl"; decl: A.StructDecl | A.EnumDecl | A.BitfieldDecl | A.ImportedDecl; args: any[]; binds: Map<string, any>; display: string; be?: boolean }
-  | { t: "host"; name: string; args: any[]; display: string; be?: boolean };
+  | { t: "builtin"; name: string; size: number; be?: boolean; attrs?: A.Attr[] }
+  | { t: "decl"; decl: A.StructDecl | A.EnumDecl | A.BitfieldDecl | A.ImportedDecl; args: any[]; binds: Map<string, any>; display: string; be?: boolean; attrs?: A.Attr[] }
+  | { t: "host"; name: string; args: any[]; display: string; be?: boolean; attrs?: A.Attr[] };
 
 interface Var { v: any; isConst?: boolean; binding?: boolean; }
 
@@ -91,8 +91,11 @@ export class PatternInstance {
   private enums = new Map<A.EnumDecl, EnumInfo>();
   private endianStack: (boolean | undefined)[] = [];
   private depth = 0;
-  arrayLimit = 0x10000;
-  patternLimit = 0x20000;
+  arrayLimit = 0x10000;       // 0 disables the limit (like ImHex)
+  patternLimit = 0x100000;
+  evalDepth = MAX_DEPTH;
+  arrayIndex = 0n;            // std::core::array_index()
+  pendingCtrl?: "break" | "continue"; // break/continue leaving a struct, consumed by the enclosing array
   private patternCount = 0;
   private printFn: (s: string) => void;
 
@@ -135,6 +138,7 @@ export class PatternInstance {
         break;
       case "array_limit": this.arrayLimit = parseInt(value); break;
       case "pattern_limit": this.patternLimit = parseInt(value); break;
+      case "eval_depth": this.evalDepth = parseInt(value); break;
     }
   }
 
@@ -230,7 +234,11 @@ export class PatternInstance {
       fr.scope = fr.root;
       params.forEach((p, i) => { if (p.isValue) fr.root.vars.set(p.name, { v: args[i] }); });
       this.frames.push(fr);
-      try { return withEndian(this.resolveType(decl.type)); } finally { this.frames.pop(); }
+      let r: CType;
+      try { r = withEndian(this.resolveType(decl.type)); } finally { this.frames.pop(); }
+      // attributes on an alias (`using X = T [[format(...)]]`) apply to its instances
+      if (decl.attrs) r = { ...r, attrs: (r.attrs || []).concat(decl.attrs) } as CType;
+      return r;
     }
     const display = params.length ? decl.name + "<" + args.map((a) => this.displayArg(a)).join(", ") + ">" : decl.name;
     return { t: "decl", decl: decl as any, args, binds, display, be };
@@ -303,7 +311,13 @@ export class PatternInstance {
   private enumConstant(name: string): bigint | undefined {
     const k = name.lastIndexOf("::");
     if (k < 0) return undefined;
-    const d = this.findType(name.substring(0, k));
+    let d = this.findType(name.substring(0, k));
+    if (d && d.s === "using" && d.type && !d.tparams) {
+      try {
+        const c = this.resolveType({ name: name.substring(0, k), loc: this.loc });
+        if (c.t === "decl") d = c.decl as A.TypeDecl;
+      } catch (e) { return undefined; }
+    }
     if (!d || d.s !== "enum") return undefined;
     const c = name.substring(k + 2);
     for (const e of this.enumInfo(d).entries) if (e.name === c) return e.lo;
@@ -318,7 +332,7 @@ export class PatternInstance {
   }
 
   private newPattern(kind: PKind, typeName: string, size: number, be: boolean): Pattern {
-    if (++this.patternCount > this.patternLimit * 16) this.error("pattern limit reached");
+    if (++this.patternCount > this.patternLimit && this.patternLimit > 0) this.error("pattern count exceeded set limit of " + this.patternLimit);
     const p = new Pattern(kind, typeName);
     p.section = this.section;
     p.offset = this.cursor;
@@ -359,7 +373,8 @@ export class PatternInstance {
       } finally { this.endianStack.pop(); }
     }
     p.name = name;
-    this.applyTypeAttrs(p, c);
+    // structs and bitfields apply their type attributes inside their own scope
+    if (!(c.t === "decl" && c.decl.s !== "enum")) this.applyTypeAttrs(p, c);
     if (attrs) this.applyAttrs(p, attrs);
     return p;
   }
@@ -419,19 +434,22 @@ export class PatternInstance {
         try {
           this.execBlock(decl.body, fr, false);
         } catch (e) {
-          if (!(e instanceof Signal) || e.kind === "continue") throw e;
-          // break / return end the struct early
+          if (!(e instanceof Signal)) throw e;
+          // break / continue end the struct and propagate to the enclosing array
+          if (e.kind !== "return") this.pendingCtrl = e.kind;
         }
       };
       run(d, c.binds);
+      if (p.kind === "union") {
+        let max = 0;
+        for (const m of p.children || []) if (!m.patternLocal && m.offset === start) max = Math.max(max, m.size);
+        p.size = max;
+      } else p.size = this.cursor - start;
+      if (!p.children) p.children = [];
+      // type attributes see the struct's members (`[[name(name), color(...)]]`)
+      this.applyTypeAttrs(p, c);
     } finally { this.frames.pop(); }
-    if (p.kind === "union") {
-      let max = 0;
-      for (const m of p.children || []) if (!m.patternLocal && m.offset === start) max = Math.max(max, m.size);
-      p.size = max;
-    } else p.size = this.cursor - start;
     this.cursor = start + p.size;
-    if (!p.children) p.children = [];
     return p;
   }
 
@@ -463,21 +481,26 @@ export class PatternInstance {
     fr.bit = { pos: startBit, mode };
     try {
       try { this.execBlock(d.body, fr, false); }
-      catch (e) { if (!(e instanceof Signal) || e.kind === "continue") throw e; }
+      catch (e) {
+        if (!(e instanceof Signal)) throw e;
+        if (e.kind !== "return") this.pendingCtrl = e.kind;
+      }
+      const bits = fr.bit.pos - startBit;
+      p.bits = bits;
+      p.offset = mode.root + Math.floor(startBit / 8);
+      if (nested) {
+        outer.bit!.pos = fr.bit.pos;
+        p.size = Math.ceil(((startBit % 8) + bits) / 8);
+      } else {
+        let total = bits;
+        if (mode.order && mode.order.size) total = Math.max(total, mode.order.size);
+        p.size = Math.ceil(total / 8);
+        this.cursor = mode.root + p.size;
+      }
+      if (!p.children) p.children = [];
+      this.applyTypeAttrs(p, c);
     } finally { this.frames.pop(); }
-    const bits = fr.bit.pos - startBit;
-    p.bits = bits;
-    p.offset = mode.root + Math.floor(startBit / 8);
-    if (nested) {
-      outer.bit!.pos = fr.bit.pos;
-      p.size = Math.ceil(((startBit % 8) + bits) / 8);
-    } else {
-      let total = bits;
-      if (mode.order && mode.order.size) total = Math.max(total, mode.order.size);
-      p.size = Math.ceil(total / 8);
-      this.cursor = mode.root + p.size;
-    }
-    if (!p.children) p.children = [];
+    if (!nested) this.cursor = mode.root + p.size;
     return p;
   }
 
@@ -488,12 +511,19 @@ export class PatternInstance {
 
   private applyTypeAttrs(p: Pattern, c: CType): void {
     if (c.t === "decl" && c.decl.attrs) this.applyAttrs(p, c.decl.attrs, true);
+    if (c.attrs) this.applyAttrs(p, c.attrs, true);
   }
 
   /** Apply `[[attributes]]` to a created pattern. */
   applyAttrs(p: Pattern, attrs: A.Attr[], typeLevel = false): void {
     for (const a of attrs) {
-      const args = a.args.map((e) => this.evalExpr(e));
+      let args: any[];
+      if (a.name === "fixed_size" || a.name === "transform" || a.name === "format" || a.name === "format_read") {
+        args = a.args.map((e) => this.evalExpr(e));
+      } else {
+        // presentation-only attributes (colors, visualizers, ...) must not abort the evaluation
+        args = a.args.map((e) => { try { return this.evalExpr(e); } catch (err) { if (err instanceof PatternError) return undefined; throw err; } });
+      }
       if (!p.attrs) p.attrs = [];
       p.attrs.push({ name: a.name, args });
       switch (a.name) {
@@ -503,7 +533,7 @@ export class PatternInstance {
         case "transform": p.transformFn = this.toStr(args[0]); break;
         case "comment": p.comment = this.toStr(args[0]); break;
         case "color": p.color = this.toStr(args[0]); break;
-        case "name": p.name = this.toStr(args[0]); break;
+        case "name": if (args[0] !== undefined) p.displayName = this.toStr(this.decay(args[0])); break;
         case "fixed_size": {
           const n = Number(this.toInt(args[0]));
           if (!typeLevel && p.size > n) this.error("pattern of size " + p.size + " exceeds fixed_size(" + n + ")");
@@ -715,7 +745,7 @@ export class PatternInstance {
     arr.children = undefined;
     const elemType = this.typeDisplay(c);
     let count = 0;
-    const limitCheck = (n: number) => { if (!local && !staticElem && n > this.arrayLimit) this.error("array grew past set limit of " + this.arrayLimit); };
+    const limitCheck = (n: number) => { if (!local && !staticElem && this.arrayLimit > 0 && n > this.arrayLimit) this.error("array grew past set limit of " + this.arrayLimit); };
     if (proto) {
       const es = proto.size;
       if (spec.k === "fixed") {
@@ -749,27 +779,37 @@ export class PatternInstance {
       arr.count = count;
     } else {
       arr.children = [];
+      let stop = false;
       const addElem = () => {
         limitCheck(arr.children!.length + 1);
-        const e = this.create(c, "[" + arr.children!.length + "]");
+        const saveIdx = this.arrayIndex;
+        this.arrayIndex = BigInt(arr.children!.length);
+        this.pendingCtrl = undefined;
+        let e: Pattern;
+        try { e = this.create(c, "[" + arr.children!.length + "]"); } finally { this.arrayIndex = saveIdx; }
         e.parent = arr;
         arr.children!.push(e);
+        // `break` in an entry keeps it and ends the array, `continue` drops it
+        const ctrl = this.pendingCtrl;
+        this.pendingCtrl = undefined;
+        if (ctrl === "break") stop = true;
+        else if (ctrl === "continue") arr.children!.pop();
         return e;
       };
       if (spec.k === "fixed") {
         const n = Number(this.toInt(this.evalExpr(spec.size)));
         if (n < 0) this.error("array size cannot be negative");
-        for (let i = 0; i < n; i++) {
+        for (let i = 0; i < n && !stop; i++) {
           if (isMain && this.cursor > dataSize) this.error("array expanded past end of the data");
           addElem();
         }
       } else if (spec.k === "while") {
-        while (this.truthy(this.evalExpr(spec.cond))) {
+        while (!stop && this.truthy(this.evalExpr(spec.cond))) {
           if (isMain && this.cursor > dataSize) this.error("array expanded past end of the data before termination condition was met");
           addElem();
         }
       } else {
-        for (;;) {
+        while (!stop) {
           if (isMain && this.cursor >= dataSize) this.error("array expanded past end of the data before a null-entry was found");
           const e = addElem();
           if (this.readPatternBytes(e).every((x) => x === 0)) break;
@@ -870,12 +910,18 @@ export class PatternInstance {
     return undefined;
   }
 
+  /** Argument passed to [[format]] / [[transform]] functions: raw value of scalars, the pattern otherwise. */
+  private fnArg(p: Pattern): any {
+    return p.isComposite() || p.kind === "pointer" ? p : this.value(p, true);
+  }
+
   /** The value of a pattern (decays scalars; composites stay patterns). */
   value(p: Pattern, raw = false): any {
     if (!raw && p.transformFn) {
       const fn = this.findFn(p.transformFn);
       if (!fn) this.error("transform function '" + p.transformFn + "' not found");
-      return this.callFn(fn, [p], this.loc);
+      const r = this.callFn(fn, [this.fnArg(p)], this.loc);
+      return r instanceof Pattern && !r.isComposite() ? this.value(r) : r;
     }
     if (p.hasOverride) return p.override;
     switch (p.kind) {
@@ -890,7 +936,7 @@ export class PatternInstance {
       case "string": {
         const b = this.mem(p.section).read(p.offset, p.size);
         let s = "";
-        for (let i = 0; i < b.length && b[i] !== 0; i++) s += String.fromCharCode(b[i]);
+        for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
         return s;
       }
       case "wstring": {
@@ -898,7 +944,6 @@ export class PatternInstance {
         let s = "";
         for (let i = 0; i + 1 < b.length; i += 2) {
           const c = p.be ? (b[i] << 8) | b[i + 1] : b[i] | (b[i + 1] << 8);
-          if (!c) break;
           s += String.fromCharCode(c);
         }
         return s;
@@ -998,7 +1043,14 @@ export class PatternInstance {
     const save = fr.scope;
     if (newScope && fr.kind !== "global") fr.scope = new Scope(save);
     try {
-      for (const s of body) this.exec(s, fr);
+      for (const s of body) {
+        this.exec(s, fr);
+        if (this.pendingCtrl && (fr.kind === "struct" || fr.kind === "bitfield")) {
+          const k = this.pendingCtrl;
+          this.pendingCtrl = undefined;
+          throw new Signal(k);
+        }
+      }
     } finally { fr.scope = save; }
   }
 
@@ -1148,7 +1200,7 @@ export class PatternInstance {
     const caller = this.curFrame;
     const fr = this.pushFrame("fn", undefined, fn.ns, new Map());
     const saveCursor = this.cursor;
-    if (++this.depth > MAX_DEPTH) { this.depth--; this.frames.pop(); this.error("evaluation depth exceeded", loc); }
+    if (++this.depth > this.evalDepth) { this.depth--; this.frames.pop(); this.error("evaluation depth exceeded", loc); }
     try {
       fn.params.forEach((p, i) => {
         let v: any;
@@ -1505,7 +1557,7 @@ export class PatternInstance {
   formatPattern(p: Pattern, inline = false): string {
     if (p.formatFn) {
       const fn = this.findFn(p.formatFn);
-      if (fn) return this.toStr(this.callFn(fn, [p], this.loc));
+      if (fn) return this.toStr(this.decay(this.callFn(fn, [this.fnArg(p)], this.loc)));
     }
     if (p.kind === "enum" || (p.kind === "bitfield_field" && p.fieldKind === "enum")) {
       const v = p.kind === "enum" ? this.value(p, true) : this.readBitsValue(p);
@@ -1547,6 +1599,7 @@ export class PatternInstance {
 
   private dumpPattern(p: Pattern, indent: number, print: (s: string) => void, name: string): void {
     if (p.hidden) return;
+    if (p.displayName) name = p.displayName;
     const pad = "".padStart(indent * 2, " ");
     const addr = p.local ? "local" : "0x" + (this.dumpBase + p.offset).toString(16).padStart(8, "0");
     const type = p.kind === "bitfield_field" ? p.typeName + ":" + p.bits : p.typeName;

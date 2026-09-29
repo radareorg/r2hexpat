@@ -21,6 +21,7 @@ export interface BitMode {
 
 export class Pattern {
   name = "";
+  displayName?: string;   // [[name(...)]] / std::core::set_display_name
   section = MAIN_SECTION;
   offset = 0;
   size = 0;

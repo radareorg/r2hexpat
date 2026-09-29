@@ -20,8 +20,10 @@ automatically (or set explicitly with `#pragma base_address 0x...`).
 
 ## Files
 
-- lexer.ts / parser.ts / ast.ts   - language front-end
-- evaluator.ts                    - pattern runtime (cursor, placements, control flow)
-- r2pipe.ts                        - memory reads over r2js (`p8`), td/tl helpers
-- index.ts                         - runHexpat() + r2js plugin registration
-- test_parser.ts                   - standalone test with mock r2 bridge
+- tsconfig.json                        - TypeScript settings (`make check` runs `tsc`)
+- lib/lexer.ts, lib/parser.ts, lib/ast.ts - language front-end
+- lib/evaluator.ts                     - pattern runtime (cursor, placements, control flow)
+- lib/r2pipe.ts                        - memory reads over r2js (`p8`), td/tl helpers
+- lib/index.ts                         - runHexpat() + r2js plugin registration
+- tests/unit.ts                        - standalone test with mock r2 bridge
+- tests/*.hexpat(.golden)              - r2 golden-file tests against tests/sample.bin

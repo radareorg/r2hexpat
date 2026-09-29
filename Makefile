@@ -1,36 +1,42 @@
 # imhexpat - ImHex pattern language for radare2 (r2js)
 #
 # Build:   make
-# Test:    make test     (standalone node test with mock r2)
+# Test:    make test     (unit test with mock r2 + r2 golden tests + upstream suite)
 # Usage:   r2 -q -i hexpat.r2.js -c 'hexpat demo/test.hexpat' /bin/ls
 
 BUNDLE  = r2frida-compile
 OUT     = hexpat.r2.js
-ENTRY   = index.ts
+SRCS    = $(wildcard lib/*.ts)
 
 all: $(OUT)
 
-$(OUT): $(ENTRY) parser.ts lexer.ts ast.ts evaluator.ts interpreter.ts r2pipe.ts hexpat.d.ts
-	$(BUNDLE) -B iife -o $(OUT) $(ENTRY)
+$(OUT): $(SRCS)
+	$(BUNDLE) -S -B iife -o $(OUT) lib/index.ts
 
-test: test_parser.js
-	node test_parser.js
+tests/unit.js: tests/unit.ts $(SRCS)
+	$(BUNDLE) -S -B iife -o $@ tests/unit.ts
+
+check:
+	tsc -p .
+
+test: test-unit test-r2
+
+test-unit: tests/unit.js
+	node tests/unit.js
 
 test-r2: $(OUT)
 	@echo "Running r2 integration tests..."
 	@for f in tests/*.hexpat; do \
 		echo "Testing $$f..."; \
-		r2 -q -i $(OUT) -c "hexpat $$f" tests/sample.bin > r2_out.txt; \
+		r2 -q -i $(OUT) -c "hexpat $$f" tests/sample.bin > tests/r2_out.txt; \
 		if [ -f "$$f.golden" ]; then \
-			diff -u "$$f.golden" r2_out.txt || exit 1; \
+			diff -u "$$f.golden" tests/r2_out.txt || exit 1; \
 		fi \
 	done
+	@rm -f tests/r2_out.txt
 	@echo "All r2 tests passed!"
 
-test_parser.js: test_parser.ts $(ENTRY) parser.ts lexer.ts ast.ts evaluator.ts interpreter.ts r2pipe.ts
-	$(BUNDLE) -B iife -o $@ test_parser.ts
-
 clean:
-	rm -f $(OUT) test_parser.js r2_out.txt dbg_out.txt
+	rm -f $(OUT) tests/unit.js tests/r2_out.txt
 
-.PHONY: all test clean
+.PHONY: all check test test-unit test-r2 clean

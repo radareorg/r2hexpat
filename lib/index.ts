@@ -1,3 +1,4 @@
+/// <reference path="./hexpat.d.ts" />
 import { parse } from "./parser";
 import { R2Pipe } from "./r2pipe";
 import { PatternInstance } from "./evaluator";

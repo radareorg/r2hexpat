@@ -1,4 +1,5 @@
-import { runHexpat } from "./index";
+/// <reference path="../lib/hexpat.d.ts" />
+import { runHexpat } from "../lib/index";
 
 const src = `
 struct Header {

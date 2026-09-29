@@ -7,7 +7,9 @@ declare global {
     call(cmd: string): string;
     callAt(cmd: string, addr: number): string;
     plugin(type: string, r2plugin: any): void;
+    unload(type: string, name: string): void;
   }
   var r2: R2JsBridge;
+  var console: { log(...a: any[]): void; error(...a: any[]): void };
 }
 export {};

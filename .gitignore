@@ -2,3 +2,4 @@ hexpat.r2.js
 tests/*.js
 tests/r2_out.txt
 node_modules
+third_party

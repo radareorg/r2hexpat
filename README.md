@@ -1,20 +1,26 @@
-<p align="center"><img src="hexpat.jpg" alt="r2hexpat"></p>
-
 # r2hexpat
 
 [![CI](https://github.com/radareorg/r2hexpat/actions/workflows/ci.yml/badge.svg)](https://github.com/radareorg/r2hexpat/actions/workflows/ci.yml)
 
 ImHex Pattern Language (`.hexpat`) implementation in TypeScript, shipped as a
-host-independent library plus a radare2 (r2js / QuickJS) plugin.
+host-independent library plus an r2js plugin.
+
+--pancake
+
+<p align="center"><img src="hexpat.jpg" alt="r2hexpat"></p>
 
 ## Build
 
-    make                              # bundles r2/plugin.ts with r2frida-compile
-    npm ci && make BUNDLER=esbuild    # or with esbuild from node_modules
+You need radare2 and r2frida (for the `r2frida-compile` program) installed.
+
+```
+make
+make user-install
+```
 
 ## Run
 
-    r2 -q -i hexpat.r2.js -c 'hexpat demo/test.hexpat' /bin/ls
+r2 -q -i hexpat.r2.js -c 'hexpat demo/test.hexpat' /bin/ls
 
 Commands (all output goes through r2's console, so `~grep` and `|` work):
 
@@ -76,16 +82,9 @@ fail are listed in `tests/upstream/XFAIL`; `make test-upstream ARGS=-v`
 shows errors and `ARGS=-u` regenerates the list. `sh tests/run_r2.sh -u`
 regenerates the r2 goldens.
 
-## Files
+## Links
 
-- `lib/lexer.ts`       - tokenizer and preprocessor
-- `lib/parser.ts`      - recursive descent parser producing `lib/ast.ts`
-- `lib/evaluator.ts`   - pattern runtime (types, placement, scopes, memory)
-- `lib/stdlib.ts`      - built-in `std::` functions and `std::format`
-- `lib/patterns.ts`    - pattern tree
-- `lib/memory.ts`      - host data cache, heap and `std::mem` sections
-- `lib/output.ts`      - JSON serialization and pattern walking
-- `lib/host.ts`        - host interface
-- `lib/index.ts`       - public API
-- `r2/plugin.ts`       - r2 core plugin (`hexpat` command), `R2Host`
-- `docs/imhex-vs-r2-ctypes.md` - how ImHex patterns and r2's C types differ
+* [x64dbg data explorer](https://github.com/x64dbg/DataExplorer)
+* [PatternLanguage C++ parser](https://github.com/WerWolv/PatternLanguage)
+* [Frida's Go reimplementation](https://github.com/frida/frida-core.git)
+* [Rust Hxy Library](https://github.com/landaire/hxy)

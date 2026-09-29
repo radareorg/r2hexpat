@@ -16,6 +16,9 @@ BUNDLE  = r2frida-compile -S -B iife -o $@
 TSC     = tsc
 endif
 
+R2_PLUGDIR = $(shell r2 -H R2_USER_PLUGINS)
+R2_PLUGSYS = $(shell r2 -H R2_LIBR_PLUGINS)
+
 all: $(OUT)
 
 $(OUT): r2/plugin.ts r2/r2.d.ts $(LIB)
@@ -29,6 +32,20 @@ tests/testlib.js: tests/testlib.ts tests/upstream_hooks.ts $(LIB)
 
 tests/upstream.r2.js: tests/upstream_r2.ts tests/upstream_hooks.ts $(LIB)
 	$(BUNDLE) tests/upstream_r2.ts
+
+user-install: $(OUT)
+	mkdir -p "$(DESTDIR)$(R2_PLUGDIR)"
+	cp -f $(OUT) "$(DESTDIR)$(R2_PLUGDIR)/$(OUT)"
+
+user-uninstall:
+	$(RM) "$(DESTDIR)$(R2_PLUGDIR)/$(OUT)"
+
+install: $(OUT)
+	mkdir -p "$(DESTDIR)$(R2_PLUGSYS)"
+	cp -f $(OUT) "$(DESTDIR)$(R2_PLUGSYS)/$(OUT)"
+
+uninstall:
+	$(RM) "$(DESTDIR)$(R2_PLUGSYS)/$(OUT)"
 
 check:
 	$(TSC) -p .
@@ -56,4 +73,4 @@ test-corpus: tests/testlib.js
 clean:
 	rm -f $(OUT) tests/*.js tests/r2_out.txt
 
-.PHONY: all check test test-unit test-upstream test-r2 test-upstream-r2 test-corpus clean
+.PHONY: all install uninstall user-install user-uninstall check test test-unit test-upstream test-r2 test-upstream-r2 test-corpus clean

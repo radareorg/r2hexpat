@@ -1,6 +1,6 @@
 {
   "name": "r2hexpat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ImHex pattern language (.hexpat) evaluator for radare2",
   "private": true,
   "license": "MIT",

@@ -59,12 +59,15 @@ export class R2Host implements HexpatHost {
   }
 }
 
+const VERSION = "0.2.0";
+
 const HELP = [
   "Usage: hexpat[?+-jl*es] [args]  # ImHex pattern language",
   "| hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns",
   "| hexpat                       show the patterns of the loaded files",
   "| hexpat+ [-I dir] file        evaluate file and add it to the loaded ones",
   "| hexpat- [n]                  unload all loaded files (or the nth)",
+  "| hexpat-v                     show the r2hexpat version",
   "| hexpatj [file]               show the patterns as JSON",
   "| hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)",
   "| hexpatl[j]                   list the loaded files and their top-level patterns",
@@ -247,7 +250,8 @@ function hexpatCommand(cmd: string): void {
         break;
       }
       case "-": {
-        if (rest === "" || rest === "*") sessions.length = 0;
+        if (rest === "v") out.push(VERSION);
+        else if (rest === "" || rest === "*") sessions.length = 0;
         else {
           const n = parseInt(rest, 10);
           if (isNaN(n) || n < 0 || n >= sessions.length) throw new Error("no loaded pattern file #" + rest);

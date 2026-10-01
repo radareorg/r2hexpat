@@ -4,6 +4,7 @@ Usage: hexpat[?+-jl*es] [args]  # ImHex pattern language
 | hexpat                       show the patterns of the loaded files
 | hexpat+ [-I dir] file        evaluate file and add it to the loaded ones
 | hexpat- [n]                  unload all loaded files (or the nth)
+| hexpat-v                     show the r2hexpat version
 | hexpatj [file]               show the patterns as JSON
 | hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)
 | hexpatl[j]                   list the loaded files and their top-level patterns

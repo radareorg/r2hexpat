@@ -29,6 +29,7 @@ Commands (all output goes through r2's console, so `~grep` and `|` work):
 | `hexpat [-q] [-I dir] [file]` | evaluate file (replacing the loaded ones) and show its patterns; without file show the loaded ones |
 | `hexpat+ [-I dir] file` | evaluate file and add it to the loaded ones |
 | `hexpat- [n]` | unload all loaded files (or the nth) |
+| `hexpat-v` | show the r2hexpat version |
 | `hexpatj [file]` | patterns as JSON (`hexpatj~{}` to indent) |
 | `hexpat* [file]` | patterns as r2 commands: flags in the `hexpat` flagspace, `Cd`/`Cs` data hints and value comments (`.hexpat*` applies them) |
 | `hexpatl[j]` | list loaded files and their top-level patterns |

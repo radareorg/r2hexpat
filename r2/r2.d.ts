@@ -9,5 +9,6 @@ declare global {
     unload(type: string, name: string): void;
   }
   var r2: R2JsBridge;
+  function b64(data: string, decode?: boolean): string;
 }
 export {};

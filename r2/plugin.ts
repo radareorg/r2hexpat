@@ -4,6 +4,7 @@
  * R2Host implements the library's HexpatHost interface on top of r2 commands.
  */
 import { compile, evaluate, pragma, toJson, walkPatterns, HexpatHost, PatternError, PatternInstance, Pattern } from "../lib/index";
+import * as A from "../lib/ast";
 
 /** Host reading the data loaded in r2 (`p8`), translated by a base address. */
 export class R2Host implements HexpatHost {
@@ -59,7 +60,7 @@ export class R2Host implements HexpatHost {
 }
 
 const HELP = [
-  "Usage: hexpat[?+-jl*e] [args]  # ImHex pattern language",
+  "Usage: hexpat[?+-jl*es] [args]  # ImHex pattern language",
   "| hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns",
   "| hexpat                       show the patterns of the loaded files",
   "| hexpat+ [-I dir] file        evaluate file and add it to the loaded ones",
@@ -67,12 +68,16 @@ const HELP = [
   "| hexpatj [file]               show the patterns as JSON",
   "| hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)",
   "| hexpatl[j]                   list the loaded files and their top-level patterns",
+  "| hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars",
   "| hexpate expr                 evaluate an expression in the context of the last loaded file",
   "| hexpat?                      show this help",
   "| options: -q (evaluate only), -I dir (add #include / import search path)",
+  "| file can be 'base64:<data>' to evaluate the encoded source instead of reading a file",
 ];
 
-interface Session { file: string; instance: PatternInstance; host: R2Host; }
+interface Session { file: string; program: A.Program; instance: PatternInstance; host: R2Host; }
+
+const B64 = "base64:";
 const sessions: Session[] = [];
 
 /** Collect output lines and print them through r_cons at once (so ~grep and | work). */
@@ -95,14 +100,16 @@ function parseArgs(args: string[]): { quiet: boolean; includeDirs: string[]; fil
 
 function load(file: string, includeDirs: string[], quiet = false): Session {
   const host = new R2Host(r2);
-  const src = host.readFile(file);
-  if (!src || src.trim() === "") throw new Error("cannot read " + file);
+  const inline = file.startsWith(B64);
+  const src = inline ? b64(file.substring(B64.length), true) : host.readFile(file);
+  if (inline) file = "base64";
+  else if (!src || src.trim() === "") throw new Error("cannot read " + file);
   host.includeDirs = includeDirs;
   host.quiet = quiet;
-  const program = compile(src, host, file);
+  const program = compile(src || "", host, file);
   const ba = (pragma(program, "base_address") || "").match(/0x[0-9a-fA-F]+|\d+/);
   host.baseAddress = ba ? parseInt(ba[0]) : R2Host.binBaseAddress(r2);
-  return { file, instance: evaluate(program, host), host };
+  return { file, program, instance: evaluate(program, host), host };
 }
 
 /** Sessions to show: the given file (replacing the loaded ones) or all loaded. */
@@ -182,6 +189,38 @@ function list(out: Out, json: boolean): void {
   });
 }
 
+/** Number of member declarations in a struct/union/bitfield body (including conditional ones). */
+function countFields(body: A.Stmt[]): number {
+  let n = 0;
+  for (const st of body) {
+    switch (st.s) {
+      case "decl": n++; break;
+      case "multi": n += st.decls.length; break;
+      case "if": n += countFields(st.then) + countFields(st.else || []); break;
+      case "while": case "for": case "try": case "block": case "nsctx": n += countFields(st.body); break;
+      case "match": for (const c of st.cases) n += countFields(c.body); break;
+    }
+  }
+  return n;
+}
+
+/** One line summary of the loaded sessions: types with their field counts, functions and placed patterns. */
+function stats(ss: Session[]): string {
+  const comp: string[] = [];
+  let enums = 0, fns = 0, patterns = 0, size = 0;
+  for (const s of ss) {
+    for (const st of s.program.body) {
+      if (st.s === "struct" || st.s === "union" || st.s === "bitfield") comp.push(st.ns.concat(st.name).join("::") + ":" + countFields(st.body));
+      else if (st.s === "enum") enums++;
+      else if (st.s === "fn") fns++;
+    }
+    patterns += s.instance.patterns.length;
+    for (const p of s.instance.patterns) size += p.size;
+  }
+  return "types " + comp.length + (comp.length ? " (" + comp.join(" ") + ")" : "") +
+    " enums " + enums + " fns " + fns + " patterns " + patterns + " size " + size;
+}
+
 function hexpatCommand(cmd: string): void {
   const out = new Out();
   const sub = cmd.substr(6, 1);
@@ -230,12 +269,21 @@ function hexpatCommand(cmd: string): void {
         break;
       }
       case "l": list(out, rest === "j" || args[0] === "j"); break;
+      case "s": {
+        // errors go to stdout too, so frontends get a single line in any case
+        try {
+          out.push(stats(target(args, true)));
+        } catch (e) {
+          out.push("error: " + (e instanceof Error ? e.message : String(e)));
+        }
+        break;
+      }
       case "e": {
         if (!rest) { out.push("Usage: hexpate expr"); break; }
         let s = sessions[sessions.length - 1];
         if (!s) {
           // no pattern loaded: evaluate against the current data with an empty program
-          s = { file: "", instance: evaluate(compile("", undefined), new R2Host(r2, R2Host.binBaseAddress(r2))), host: new R2Host(r2) };
+          s = { file: "", program: { pragmas: [], body: [] }, instance: evaluate(compile("", undefined), new R2Host(r2, R2Host.binBaseAddress(r2))), host: new R2Host(r2) };
         }
         const v = s.instance.evaluateExpression(rest);
         const d = s.instance.describe(v, s.host.baseAddress);
@@ -265,7 +313,7 @@ function hexpatCommand(cmd: string): void {
       call: function (cmd: string) {
         if (!cmd.startsWith("hexpat")) return false;
         const c = cmd.charAt(6);
-        if (c !== "" && " ?h+-j*le".indexOf(c) < 0) return false;
+        if (c !== "" && " ?h+-j*les".indexOf(c) < 0) return false;
         hexpatCommand(cmd);
         return true;
       },

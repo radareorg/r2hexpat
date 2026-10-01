@@ -26,3 +26,10 @@ hexpate u8(-1)
 ?e -- errors
 hexpate nope
 hexpat tests/does_not_exist.hexpat
+hexpats tests/does_not_exist.hexpat
+?e -- one line stats, inline base64 sources
+hexpats tests/syntax_structs.hexpat
+hexpats
+hexpats base64:Ly8gU3RydWN0cywgbmVzdGVkIHN0cnVjdHMsIHVuaW9ucwpzdHJ1Y3QgSGVhZGVyIHsKICAgIHUzMiBtYWdpYzsKICAgIHUxNiB2ZXJzaW9uOwogICAgdTE2IGZsYWdzOwogICAgdTY0IHRpbWVzdGFtcDsKfTsKdW5pb24gV29yZCB7CiAgICB1MzIgdmFsdWU7CiAgICB1OCBieXRlc1s0XTsKfTsKc3RydWN0IEZpbGUgewogICAgSGVhZGVyIGhlYWQ7CiAgICBXb3JkIHdvcmQ7CiAgICB1OCBsZW47CiAgICB1OCBkYXRhW2xlbiAlIDRdOwp9OwpGaWxlIGZpbGUgQCAweDAwOwp1MzIgZm9vdGVyIEAgJDsK
+hexpatl
+hexpats base64:c3RydWN0IEEgeyB1OCB4OyA=

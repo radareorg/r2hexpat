@@ -1,5 +1,5 @@
 -- help
-Usage: hexpat[?+-jl*e] [args]  # ImHex pattern language
+Usage: hexpat[?+-jl*es] [args]  # ImHex pattern language
 | hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns
 | hexpat                       show the patterns of the loaded files
 | hexpat+ [-I dir] file        evaluate file and add it to the loaded ones
@@ -7,9 +7,11 @@ Usage: hexpat[?+-jl*e] [args]  # ImHex pattern language
 | hexpatj [file]               show the patterns as JSON
 | hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)
 | hexpatl[j]                   list the loaded files and their top-level patterns
+| hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars
 | hexpate expr                 evaluate an expression in the context of the last loaded file
 | hexpat?                      show this help
 | options: -q (evaluate only), -I dir (add #include / import search path)
+| file can be 'base64:<data>' to evaluate the encoded source instead of reading a file
 -- load one file, list, evaluate expressions in its context
 fib=55 kind=low high sizeof=6 type=Pair<u16, 2>
 0 tests/syntax_functions.hexpat (2 patterns)
@@ -45,5 +47,14 @@ probe2 (u8) @ 0x0000000b = 164 (0xa4)
 145 (0x91)
 255 (0xff)
 -- errors
+error: cannot read tests/does_not_exist.hexpat
+-- one line stats, inline base64 sources
+types 3 (Header:4 Word:2 File:4) enums 0 fns 0 patterns 2 size 26
+types 3 (Header:4 Word:2 File:4) enums 0 fns 0 patterns 2 size 26
+types 3 (Header:4 Word:2 File:4) enums 0 fns 0 patterns 2 size 26
+0 base64 (2 patterns)
+  0x00000000     22  file (File)
+  0x00000016      4  footer (u32)
+error: expected '}' at end of input (base64:0:0)
 hexpat: error: variable 'nope' does not exist (<expr>:1:1)
 hexpat: cannot read tests/does_not_exist.hexpat

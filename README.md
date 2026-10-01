@@ -33,7 +33,12 @@ Commands (all output goes through r2's console, so `~grep` and `|` work):
 | `hexpat* [file]` | patterns as r2 commands: flags in the `hexpat` flagspace, `Cd`/`Cs` data hints and value comments (`.hexpat*` applies them) |
 | `hexpatl[j]` | list loaded files and their top-level patterns |
 | `hexpate expr` | evaluate an expression in the context of the last loaded file (`hexpate sizeof(header)`, `hexpate $[0x10]`) |
+| `hexpats [file]` | one-line summary (types with their field count, enums, functions, patterns, size) or the error, meant for status bars |
 | `hexpat?` | help |
+
+Any `file` argument can be `base64:<data>` to evaluate the encoded source
+directly, so frontends (like iaito) can feed the contents of an editor on every
+change and show `hexpats base64:...` in a status bar for live feedback.
 
 Addresses are r2 addresses: pattern offsets are translated by the binary's
 base address (`ij.bin.baddr`), or `#pragma base_address 0x...`.

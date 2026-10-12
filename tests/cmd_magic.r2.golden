@@ -1,0 +1,63 @@
+-- magic help
+Usage: hexpatm [options] Type  # libmagic header decoder for pm
+| hexpatm [-f file] [-I dir] [-a N] Type  print a magic file for the type's fixed layout
+| defaults: types from the last loaded file, packed layout (-a 1)
+| options: -f file (compile types only), -I dir (includes), -a/--align 1|2|4|8|16
+| fields: nested structs, unions, arrays, strings, 1/2/4/8-byte integers and pointers, float/double
+| integers/enums print raw hex; padding is omitted; dynamic layouts and unsupported fields are rejected
+| export: hexpatm -f demo/test.hexpat MachHeader > /tmp/macho.magic
+| decode: pm /tmp/macho.magic @ 0  (increase block size with b if the header is larger)
+-- types from a loaded file
+# MachHeader size=32 align=1
+31	ubyte	x	MachHeader
+>0	ulelong	x	magic=0x%x
+>4	ulelong	x	cputype=0x%x
+>8	ulelong	x	cpusubtype=0x%x
+>12	ulelong	x	filetype=0x%x
+>16	ulelong	x	ncmds=0x%x
+>20	ulelong	x	sizeofcmds=0x%x
+>24	ulelong	x	flags=0x%x
+>28	ulelong	x	reserved=0x%x
+>0	ubyte	x
+-- type-only export, includes and nested fixed layouts
+# Header size=40 align=1
+39	ubyte	x	Header
+>0	string	x	magic=%.4s
+>4	uleshort	x	version=0x%x
+>6	ubeshort	x	flags=0x%x
+>8	ulequad	x	timestamp=0x%llx
+>16	ubeshort	x	pairs[0].value=0x%x
+>18	ubeshort	x	pairs[1].value=0x%x
+>20	ulelong	x	value.word=0x%x
+>20	ubyte	x	value.bytes[0]=0x%x
+>21	ubyte	x	value.bytes[1]=0x%x
+>22	ubyte	x	value.bytes[2]=0x%x
+>23	ubyte	x	value.bytes[3]=0x%x
+>24	lefloat	x	ratio=%g
+>28	ubyte	x	mode=0x%x
+>29	uleshort	x	delta=0x%x
+>32	ulelong	x	next=0x%x
+>36	bestring16	x	name=%.2s
+>0	ubyte	x
+-- decode header at another address with pm
+0x00000040 0 Header magic=HEXP version=0x1 flags=0x1234 timestamp=0x1122334455667788 pairs[0].value=0x1234 pairs[1].value=0x5678 value.word=0x12345678 value.bytes[0]=0x78 value.bytes[1]=0x56 value.bytes[2]=0x34 value.bytes[3]=0x12 ratio=1.5 mode=0x1 delta=0xfffe next=0xdeadbeef name=AB
+-- exporting preserves the loaded file and supports alignment
+0 demo/test.hexpat (2 patterns)
+  0x00000000     32  macho (MachHeader)
+  0x00000020      8  someflags (u32[2])
+# Player size=32 align=8
+31	ubyte	x	Player
+>0	ulelong	x	health=0x%x
+>4	ulelong	x	lives=0x%x
+>8	ubyte	x	role=0x%x
+>12	lefloat	x	position.x=%g
+>16	lefloat	x	position.y=%g
+>20	lefloat	x	position.z=%g
+>24	ulequad	x	next=0x%llx
+>0	ubyte	x
+-- unsupported fields and bad arguments
+-- discard staged test bytes
+hexpat: libmagic cannot decode field 'value' (u24, 3 bytes); use hexpat to decode this type
+hexpat: error: layout depends on unset field 'count' (tests/magic_types.pat:20:31)
+hexpat: Usage: hexpatm [-f file] [-I dir] [-a N] Type
+hexpat: error: alignment must be 1, 2, 4, 8 or 16 (line 0:0)

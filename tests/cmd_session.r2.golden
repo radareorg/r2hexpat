@@ -1,5 +1,5 @@
 -- help
-Usage: hexpat[?+-jl*esp] [args]  # ImHex pattern language
+Usage: hexpat[?+-jl*espm] [args]  # ImHex pattern language
 | hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns
 | hexpat                       show the patterns of the loaded files
 | hexpat+ [-I dir] file        evaluate file and add it to the loaded ones
@@ -11,6 +11,7 @@ Usage: hexpat[?+-jl*esp] [args]  # ImHex pattern language
 | hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars
 | hexpate expr                 evaluate an expression or assignment in the last loaded file (writes r2 I/O)
 | hexpatp[?+=-ijl] ...         create partial instances and masked search patterns (hexpatp? for help)
+| hexpatm [options] Type       print a libmagic decoder for a fixed type (hexpatm? for help)
 | hexpat?                      show this help
 | options: -q (evaluate only), -I dir (add #include / import search path)
 | file can be 'base64:<data>' to evaluate the encoded source instead of reading a file

@@ -24,13 +24,13 @@ all: $(OUT)
 $(OUT): r2/plugin.ts r2/r2.d.ts $(LIB)
 	$(BUNDLE) r2/plugin.ts
 
-tests/unit.js: tests/unit.ts tests/search_unit.ts $(LIB)
+tests/unit.js: tests/unit.ts tests/search_unit.ts tests/magic_unit.ts $(LIB)
 	$(BUNDLE) tests/unit.ts
 
 tests/testlib.js: tests/testlib.ts tests/upstream_hooks.ts $(LIB)
 	$(BUNDLE) tests/testlib.ts
 
-tests/upstream.r2.js: tests/upstream_r2.ts tests/upstream_hooks.ts tests/search_unit.ts $(LIB)
+tests/upstream.r2.js: tests/upstream_r2.ts tests/upstream_hooks.ts tests/search_unit.ts tests/magic_unit.ts $(LIB)
 	$(BUNDLE) tests/upstream_r2.ts
 
 user-install: $(OUT)

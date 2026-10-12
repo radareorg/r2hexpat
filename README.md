@@ -35,6 +35,7 @@ Commands (all output goes through r2's console, so `~grep` and `|` work):
 | `hexpatl[j]` | list loaded files and their top-level patterns |
 | `hexpate expr` | evaluate an expression or assignment in the last loaded file (`hexpate sizeof(header)`, `hexpate header.value = 3`) |
 | `hexpatp[?+=-ijl] ...` | build partial instances and masked search patterns (`hexpatp?` for help) |
+| `hexpatm [options] Type` | print a libmagic header decoder (`hexpatm?` for help) |
 | `hexpats [file]` | one-line summary (types with their field count, enums, functions, patterns, size) or the error, meant for status bars |
 | `hexpat?` | help |
 
@@ -132,6 +133,37 @@ field, variable-length arrays, conditionals, address-dependent layouts, and
 transformed values are rejected instead of guessing their layout. Setting a
 length field does not make a dynamic type static. `hexpat` and `hexpate` still
 decode and modify ordinary placed patterns as before.
+
+## Magic header decoders
+
+`hexpatm` exports a fixed type as a text magic file for r2's `pm` or `file -m`:
+
+```text
+hexpatm -f demo/test.hexpat MachHeader > /tmp/macho.magic
+pm /tmp/macho.magic @ 0
+```
+
+Without `-f`, it uses the types from the last file loaded with `hexpat`.
+It accepts the same `-f file`, `-I dir`, `-a N` / `--align N` options as
+`hexpatp`, including `base64:` sources, and compiles types without decoding
+placements or running top-level statements or `main()`. Exporting leaves
+the loaded files and search instances intact.
+
+The decoder prints nested field paths, fixed array entries and all union
+views at their declared offsets and byte order. Integers, enums, booleans,
+`char16` scalars and pointer addresses print their raw hexadecimal bits;
+`float` and `double` print numeric values. Fixed `char` arrays and `char`
+scalars print bounded strings; `char16` arrays use libmagic's string16 types.
+Padding is omitted. Each field uses an unconditional `x` test: this decodes
+the selected header type rather than identifying its file format by a
+signature. The first rule checks that the whole fixed header is available.
+Increase r2's block size (`b N`) when the header exceeds the current block.
+
+Dynamic layouts, transformed fields, bitfields, integer/pointer widths other
+than 1, 2, 4 or 8 bytes, and `float16` are rejected. Use ordinary `hexpat`
+evaluation for those types. Library callers can export the same decoder
+with `new SearchPattern(program, "MachHeader").toMagic()`; any assigned
+search values are ignored.
 
 ## Library
 

@@ -73,7 +73,7 @@ export class R2Host implements HexpatHost {
 const VERSION = "0.2.0";
 
 const HELP = [
-  "Usage: hexpat[?+-jl*esp] [args]  # ImHex pattern language",
+  "Usage: hexpat[?+-jl*espm] [args]  # ImHex pattern language",
   "| hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns",
   "| hexpat                       show the patterns of the loaded files",
   "| hexpat+ [-I dir] file        evaluate file and add it to the loaded ones",
@@ -85,6 +85,7 @@ const HELP = [
   "| hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars",
   "| hexpate expr                 evaluate an expression or assignment in the last loaded file (writes r2 I/O)",
   "| hexpatp[?+=-ijl] ...         create partial instances and masked search patterns (hexpatp? for help)",
+  "| hexpatm [options] Type       print a libmagic decoder for a fixed type (hexpatm? for help)",
   "| hexpat?                      show this help",
   "| options: -q (evaluate only), -I dir (add #include / import search path)",
   "| file can be 'base64:<data>' to evaluate the encoded source instead of reading a file",
@@ -114,6 +115,17 @@ const PATTERN_HELP = [
   "| search: /x `hexpatp -f game.hexpat Player health=100 lives=3`",
 ];
 
+const MAGIC_HELP = [
+  "Usage: hexpatm [options] Type  # libmagic header decoder for pm",
+  "| hexpatm [-f file] [-I dir] [-a N] Type  print a magic file for the type's fixed layout",
+  "| defaults: types from the last loaded file, packed layout (-a 1)",
+  "| options: -f file (compile types only), -I dir (includes), -a/--align 1|2|4|8|16",
+  "| fields: nested structs, unions, arrays, strings, 1/2/4/8-byte integers and pointers, float/double",
+  "| integers/enums print raw hex; padding is omitted; dynamic layouts and unsupported fields are rejected",
+  "| export: hexpatm -f demo/test.hexpat MachHeader > /tmp/macho.magic",
+  "| decode: pm /tmp/macho.magic @ 0  (increase block size with b if the header is larger)",
+];
+
 /** Collect output lines and print them through r_cons at once (so ~grep and | work). */
 class Out {
   lines: string[] = [];
@@ -140,7 +152,7 @@ function patternOptions(src: string): { file: string; includeDirs: string[]; ali
   const opts = { file: "", includeDirs: [] as string[], alignment: undefined as number | undefined, rest: src.trim() };
   while (opts.rest.startsWith("-")) {
     const flag = word(opts.rest), arg = word(flag.rest);
-    if (!["-f", "--file", "-I", "-a", "--align"].includes(flag.value)) throw new Error("unknown search option '" + flag.value + "'");
+    if (!["-f", "--file", "-I", "-a", "--align"].includes(flag.value)) throw new Error("unknown layout option '" + flag.value + "'");
     if (!arg.value) throw new Error("missing value for " + flag.value);
     if (flag.value === "-f" || flag.value === "--file") opts.file = arg.value;
     else if (flag.value === "-I") opts.includeDirs.push(arg.value);
@@ -154,7 +166,7 @@ function searchProgram(file: string, includeDirs: string[]): A.Program {
   if (!file) {
     const s = sessions[sessions.length - 1];
     if (!s) throw new Error("no types loaded: use -f file or load a pattern with hexpat");
-    if (includeDirs.length) throw new Error("-I requires -f when creating a search pattern");
+    if (includeDirs.length) throw new Error("-I requires -f when compiling types");
     return s.program;
   }
   const host = new R2Host(r2);
@@ -224,6 +236,17 @@ function patternCommand(tail: string, out: Out): void {
     for (const f of p.fields()) out.push("  0x" + f.offset.toString(16).padStart(4, "0") + " " + String(f.size).padStart(4) +
       " " + f.path + " (" + f.type + (f.bits === undefined ? "" : ":" + f.bits) + ") = " + (f.defined ? JSON.stringify(f.value) : "unset"));
   } else out.push(p.toR2());
+}
+
+function magicCommand(rest: string, out: Out): void {
+  if (!rest || ["?", "-h", "--help"].includes(rest)) {
+    for (const line of MAGIC_HELP) out.push(line);
+    return;
+  }
+  const opts = patternOptions(rest), arg = word(opts.rest);
+  if (!arg.value || arg.rest) throw new Error("Usage: hexpatm [-f file] [-I dir] [-a N] Type");
+  const p = new SearchPattern(searchProgram(opts.file, opts.includeDirs), arg.value, { alignment: opts.alignment });
+  out.push(p.toMagic());
 }
 
 function parseArgs(args: string[]): { quiet: boolean; includeDirs: string[]; file: string } {
@@ -432,6 +455,7 @@ function hexpatCommand(cmd: string): void {
         break;
       }
       case "p": patternCommand(cmd.substring(7), out); break;
+      case "m": magicCommand(rest, out); break;
       default:
         for (const l of HELP) out.push(l);
     }
@@ -455,7 +479,7 @@ function hexpatCommand(cmd: string): void {
       call: function (cmd: string) {
         if (!cmd.startsWith("hexpat")) return false;
         const c = cmd.charAt(6);
-        if (c !== "" && " ?h+-j*lesp".indexOf(c) < 0) return false;
+        if (c !== "" && " ?h+-j*lespm".indexOf(c) < 0) return false;
         hexpatCommand(cmd);
         return true;
       },

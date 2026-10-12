@@ -239,6 +239,39 @@ export class SearchPattern {
   encode(): SearchEncoding { return this.merge(this.values); }
   /** r2 /x accepts arbitrary bit masks, including partially defined bitfield bytes. */
   toR2(): string { const { bytes, mask } = this.encode(); return hex(bytes) + ":" + hex(mask); }
+
+  /** A libmagic decoder for this fixed layout; assignments do not constrain its matches. */
+  toMagic(): string {
+    // Labels are printf descriptions, not expressions or magic-file directives.
+    const label = (s: string): string => s.replace(/[^\x20-\x7e]|[\\%]/g, "_");
+    const lines = ["# " + label(this.type) + " size=" + this.size + " align=" + this.alignment,
+      (this.size - 1) + "\tubyte\tx\t" + label(this.type)];
+    for (const [path, p] of this.leaves) {
+      if (!p.size) continue;
+      const endian = p.be ? "be" : "le";
+      let type: string, format: string;
+      if (p.kind === "string" || p.kind === "wstring" || p.kind === "char") {
+        type = p.kind === "wstring" ? endian + "string16" : "string";
+        format = "%." + (p.kind === "wstring" ? p.size / 2 : p.size) + "s";
+      } else if (p.kind === "float" && (p.size === 4 || p.size === 8)) {
+        type = endian + (p.size === 4 ? "float" : "double");
+        format = "%g";
+      } else if (["unsigned", "signed", "bool", "char16", "enum", "pointer"].includes(p.kind) && [1, 2, 4, 8].includes(p.size)) {
+        const width = { 1: "byte", 2: "short", 4: "long", 8: "quad" }[p.size];
+        type = "u" + (p.size === 1 ? "" : endian) + width;
+        // Raw hexadecimal also preserves signed fields' exact bit representation.
+        format = p.size === 8 ? "0x%llx" : "0x%x";
+      } else {
+        throw new Error("libmagic cannot decode field '" + path + "' (" + (p.typeName || p.kind) +
+          ", " + p.size + " bytes); use hexpat to decode this type");
+      }
+      lines.push(">" + p.offset + "\t" + type + "\tx\t" + label(path) + "=" + format);
+    }
+    // Some bundled r2 magic readers skip the final rule; keep it message-free.
+    lines.push(">0\tubyte\tx");
+    return lines.join("\n");
+  }
+
   fields(): SearchField[] {
     return Array.from(this.leaves, ([path, p]) => {
       const v = this.values.get(path);

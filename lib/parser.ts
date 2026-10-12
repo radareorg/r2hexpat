@@ -318,6 +318,15 @@ class Parser {
     return { s: "assign", loc, target, op, value };
   }
 
+  /** One interactive expression or assignment, with an optional semicolon. */
+  parseEvaluation(): A.Stmt {
+    const loc = this.loc();
+    const s: A.Stmt = this.atAssignment() ? this.parseAssignment() : { s: "expr", loc, e: this.parseExpr() };
+    this.semis();
+    this.expectEnd();
+    return s;
+  }
+
   /** Parse one statement (or declaration) and append it to `out`. */
   statement(out: A.Stmt[], inBitfield = false): void {
     const p = this.peek();
@@ -761,13 +770,23 @@ export function parse(src: string, name = "", resolve?: SourceResolver, defines:
   return parseProgram(src, name, resolve, defines);
 }
 
-/** Parse a single expression (used to evaluate expressions against a loaded pattern). */
-export function parseExpression(src: string, knownTypes: Iterable<string> = []): A.Expr {
+function expressionParser(src: string, knownTypes: Iterable<string>): Parser {
   const pre = preprocess(src, "<expr>");
   const st: ImportState = { seen: new Set(), pragmas: pre.pragmas, defines: new Map(), once: new Set() };
   const p = new Parser(pre.tokens, st);
   for (const t of knownTypes) p.types.add(t);
+  return p;
+}
+
+/** Parse a single expression. */
+export function parseExpression(src: string, knownTypes: Iterable<string> = []): A.Expr {
+  const p = expressionParser(src, knownTypes);
   const e = p.parseExpr();
   p.expectEnd();
   return e;
+}
+
+/** Parse an interactive expression or assignment against a loaded pattern. */
+export function parseEvaluation(src: string, knownTypes: Iterable<string> = []): A.Stmt {
+  return expressionParser(src, knownTypes).parseEvaluation();
 }

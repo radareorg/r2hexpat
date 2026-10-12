@@ -23,7 +23,7 @@ tests and the ImHex-Patterns corpus (`make test-corpus`: 358/358 files parse,
 - [x] Built-in std: `assert`, `print`, `format` (fmt specs), `std::mem` (sections, reads), `std::core`, `std::string`, `std::math`
 - [x] Semantic errors: redeclarations, const assignment, division by zero, bad string ops, arity, undefined functions
 - [x] Host-independent library (`HexpatHost`), r2 plugin in `r2/`, paged reads (4K `p8`)
-- [x] r2 commands: `hexpatj` (JSON), `hexpat*` (flags, data hints, comments), `hexpatl`, `hexpate` (expressions), `hexpat+`/`hexpat-` (several loaded files), `hexpat?`
+- [x] r2 commands: `hexpatj` (JSON), `hexpat*` (flags, data hints, comments), `hexpatl`, `hexpate` (expressions and assignments through r2 I/O), `hexpat+`/`hexpat-` (several loaded files), `hexpat?`
 
 ## 🚀 Next
 - [x] The real ImHex std/type libraries load from an ImHex-Patterns checkout (`hexpat -I .../includes`); all `builtin::std` functions they use exist except `std::file` (no filesystem access)

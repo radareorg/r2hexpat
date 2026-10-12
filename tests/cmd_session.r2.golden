@@ -9,7 +9,7 @@ Usage: hexpat[?+-jl*es] [args]  # ImHex pattern language
 | hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)
 | hexpatl[j]                   list the loaded files and their top-level patterns
 | hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars
-| hexpate expr                 evaluate an expression in the context of the last loaded file
+| hexpate expr                 evaluate an expression or assignment in the last loaded file (writes r2 I/O)
 | hexpat?                      show this help
 | options: -q (evaluate only), -I dir (add #include / import search path)
 | file can be 'base64:<data>' to evaluate the encoded source instead of reading a file

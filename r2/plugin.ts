@@ -6,7 +6,7 @@
 import { compile, evaluate, pragma, toJson, walkPatterns, HexpatHost, PatternError, PatternInstance, Pattern } from "../lib/index";
 import * as A from "../lib/ast";
 
-/** Host reading the data loaded in r2 (`p8`), translated by a base address. */
+/** Host accessing r2 I/O (`p8`/`wx`), translated by a base address. */
 export class R2Host implements HexpatHost {
   includeDirs: string[] = [];
   constructor(private r2: R2JsBridge, public baseAddress = 0) {}
@@ -23,6 +23,17 @@ export class R2Host implements HexpatHost {
     const hex = (this.r2.cmd("p8 " + size + " @ " + (this.baseAddress + addr)) || "").replace(/[^0-9a-fA-F]/g, "");
     for (let i = 0; i < size && i * 2 + 1 < hex.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
     return out;
+  }
+
+  write(addr: number, bytes: Uint8Array): void {
+    if (!bytes.length) return;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const address = "0x" + (this.baseAddress + addr).toString(16);
+    const status = this.r2.cmd("wx " + hex + " @ " + address + ";?v $?").trim();
+    if (status !== "0x0" && status !== "0")
+      throw new Error("cannot write at " + address + ": open with -w or enable io.cache");
+    const actual = this.read(addr, bytes.length);
+    if (actual.some((b, i) => b !== bytes[i])) throw new Error("write failed at " + address);
   }
 
   quiet = false; // drop std::print output (JSON and r2 script output must stay parseable)
@@ -72,7 +83,7 @@ const HELP = [
   "| hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)",
   "| hexpatl[j]                   list the loaded files and their top-level patterns",
   "| hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars",
-  "| hexpate expr                 evaluate an expression in the context of the last loaded file",
+  "| hexpate expr                 evaluate an expression or assignment in the last loaded file (writes r2 I/O)",
   "| hexpat?                      show this help",
   "| options: -q (evaluate only), -I dir (add #include / import search path)",
   "| file can be 'base64:<data>' to evaluate the encoded source instead of reading a file",
@@ -230,6 +241,7 @@ function hexpatCommand(cmd: string): void {
   const rest = cmd.substr(sub === " " || sub === "" ? 6 : 7).trim();
   const args = rest.split(/\s+/).filter((x) => x);
   try {
+    for (const s of sessions) s.instance.invalidateData();
     switch (sub) {
       case "?": case "h": for (const l of HELP) out.push(l); break;
       case "": case " ":
@@ -283,7 +295,7 @@ function hexpatCommand(cmd: string): void {
         break;
       }
       case "e": {
-        if (!rest) { out.push("Usage: hexpate expr"); break; }
+        if (!rest) { out.push("Usage: hexpate expr (e.g. header.value = 3)"); break; }
         let s = sessions[sessions.length - 1];
         if (!s) {
           // no pattern loaded: evaluate against the current data with an empty program

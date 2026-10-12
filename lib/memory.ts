@@ -7,16 +7,25 @@ import { HexpatHost } from "./host";
 export interface Memory {
   read(addr: number, size: number): Uint8Array;
   write?(addr: number, bytes: Uint8Array): void;
+  invalidate?(): void;
   size(): number;
 }
 
 const PAGE = 4096;
 
-/** Read-only view of the host data with a page cache. */
+/** View of the host data with a page cache and optional write-through support. */
 export class HostMemory implements Memory {
   private pages = new Map<number, Uint8Array>();
   private _size = -1;
-  constructor(private host: HexpatHost) {}
+  write?: (addr: number, bytes: Uint8Array) => void;
+  constructor(private host: HexpatHost) {
+    if (host.write) this.write = (addr, bytes) => {
+      if (!Number.isSafeInteger(addr) || addr < 0 || addr + bytes.length > this.size())
+        throw new Error("write outside the data");
+      try { host.write!(addr, bytes); } finally { this.invalidate(); }
+    };
+  }
+  invalidate(): void { this.pages.clear(); this._size = -1; }
   size(): number {
     if (this._size < 0) this._size = Math.max(0, this.host.size());
     return this._size;

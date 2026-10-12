@@ -11,7 +11,7 @@ import * as A from "./ast";
 import { uintN, intN } from "./bigint";
 import { Chr } from "./ast";
 import { PatternError } from "./lexer";
-import { parseExpression } from "./parser";
+import { parseEvaluation } from "./parser";
 import { Pattern, PKind, EnumInfo, BitMode, MAIN_SECTION, HEAP_SECTION } from "./patterns";
 import { Memory, BufferMemory, SparseMemory } from "./memory";
 import { callBuiltin, formatString } from "./stdlib";
@@ -101,6 +101,7 @@ export class PatternInstance {
   private importsRegistered = new Set<A.ImportedDecl>();
   private patternCount = 0;
   private printFn: (s: string) => void;
+  private writeMain = false; // interactive assignments write through; pattern evaluation keeps ImHex overrides
 
   constructor(private program: A.Program, private data: Memory, private host: HostHooks = {}, print?: (s: string) => void) {
     this.sections.set(MAIN_SECTION, data);
@@ -1014,9 +1015,63 @@ export class PatternInstance {
     return b;
   }
 
+  /** Patch a bitfield member without changing its neighbors. */
+  private writeBits(p: Pattern, v: bigint): void {
+    const m = p.bitMode!, mem = this.mem(p.section);
+    if (m.order && m.order.size) {
+      const nbytes = Math.ceil(m.order.size / 8);
+      const bytes = mem.read(m.root, nbytes);
+      let raw = 0n;
+      for (let i = 0; i < nbytes; i++) raw |= BigInt(bytes[i]) << BigInt(8 * (m.be ? nbytes - 1 - i : i));
+      const shift = m.order.lsbFirst ? p.bitPos : m.order.size - p.bitPos - p.bits;
+      if (shift < 0 || shift + p.bits > m.order.size) this.error("bitfield member outside its storage");
+      const mask = ((1n << BigInt(p.bits)) - 1n) << BigInt(shift);
+      raw = (raw & ~mask) | (uintN(p.bits, v) << BigInt(shift));
+      mem.write!(m.root, this.encodeInt(raw, nbytes, m.be));
+      return;
+    }
+    const first = Math.floor(p.bitPos / 8);
+    const bytes = mem.read(m.root + first, Math.ceil(((p.bitPos % 8) + p.bits) / 8));
+    const lsbFirst = m.order ? m.order.lsbFirst : !m.be;
+    for (let i = 0; i < p.bits; i++) {
+      const k = (p.bitPos % 8) + i;
+      const bit = lsbFirst ? k & 7 : 7 - (k & 7);
+      const value = Number((v >> BigInt(lsbFirst ? i : p.bits - 1 - i)) & 1n);
+      bytes[k >> 3] = (bytes[k >> 3] & ~(1 << bit)) | (value << bit);
+    }
+    mem.write!(m.root + first, bytes);
+  }
+
+  private encodeFloat(v: number, size: number, be: boolean): Uint8Array {
+    if (size === 2) {
+      const sign = v < 0 || Object.is(v, -0) ? 0x8000 : 0;
+      const a = Math.abs(v);
+      let h: number;
+      const roundEven = (n: number): number => {
+        const i = Math.floor(n), f = n - i;
+        return i + (f > 0.5 || (f === 0.5 && (i & 1)) ? 1 : 0);
+      };
+      let e = Math.floor(Math.log2(a));
+      if (Number.isNaN(a)) h = 0x7e00;
+      else if (a === Infinity || e > 15) h = 0x7c00;
+      else if (e < -14) h = roundEven(a * Math.pow(2, 24));
+      else {
+        let n = roundEven(a / Math.pow(2, e - 10));
+        if (n === 2048) { n = 1024; e++; }
+        h = e > 15 ? 0x7c00 : ((e + 15) << 10) | (n - 1024);
+      }
+      return this.encodeInt(BigInt(sign | h), 2, be);
+    }
+    const dv = new DataView(new ArrayBuffer(size));
+    if (size === 4) dv.setFloat32(0, v, !be); else dv.setFloat64(0, v, !be);
+    return new Uint8Array(dv.buffer);
+  }
+
   /** Write a value into a pattern (local variables, members, array entries). */
   assignPattern(p: Pattern, v: any): void {
     if (v === null || v === undefined) return;
+    const mainWrite = this.writeMain && p.section === MAIN_SECTION && !p.loose;
+    if (mainWrite && (p.transformFn || p.inner)) this.error("cannot write a transformed field");
     if (v instanceof Array) {
       if (p.kind !== "array" && p.kind !== "string") this.error("cannot assign a list to a non-array variable");
       if (p.kind === "string") { this.assignPattern(p, v.map((x) => this.toStr(x)).join("")); return; }
@@ -1039,27 +1094,36 @@ export class PatternInstance {
       if (v instanceof Pattern) return;
       this.error("cannot assign a " + this.typeOfValue(v) + " to a " + p.typeName);
     }
-    const writable = p.section !== MAIN_SECTION && !p.loose && (this.mem(p.section) as any).write;
+    const mem = this.mem(p.section);
+    if (mainWrite && !mem.write) this.error("host data is read-only");
+    const writable = (p.section !== MAIN_SECTION || mainWrite) && !p.loose && mem.write;
     if (p.kind === "string" || p.kind === "wstring") {
-      if (writable && !p.hasOverride) {
+      if (writable && (!p.hasOverride || mainWrite)) {
         const s = this.toStr(v);
         const b = new Uint8Array(p.size);
-        for (let i = 0; i < s.length && i < p.size; i++) b[i] = s.charCodeAt(i) & 0xff;
-        this.mem(p.section).write!(p.offset, b);
+        const width = p.kind === "wstring" ? 2 : 1;
+        for (let i = 0; i < s.length && (i + 1) * width <= p.size; i++) {
+          const c = s.charCodeAt(i);
+          if (width === 1) b[i] = c & 0xff;
+          else { b[2 * i] = p.be ? c >> 8 : c & 0xff; b[2 * i + 1] = p.be ? c & 0xff : c >> 8; }
+        }
+        mem.write!(p.offset, b);
+        p.hasOverride = false;
       } else { p.hasOverride = true; p.override = this.toStr(v); }
       return;
     }
     const conv = this.convertFor(p, v);
     if (p.loose) { p.hasOverride = true; p.override = v instanceof Chr || typeof v !== "bigint" ? v : v; return; }
+    if (mainWrite && p.kind === "bitfield_field") {
+      this.writeBits(p, this.toInt(conv));
+      p.hasOverride = false;
+      return;
+    }
     if (!writable || p.kind === "bitfield_field") { p.hasOverride = true; p.override = conv; return; }
-    p.hasOverride = false;
     let bytes: Uint8Array;
     switch (p.kind) {
       case "float": {
-        const dv = new DataView(new ArrayBuffer(8));
-        if (p.size === 4) dv.setFloat32(0, Number(conv), false); else dv.setFloat64(0, Number(conv), false);
-        bytes = new Uint8Array(p.size);
-        for (let i = 0; i < p.size; i++) bytes[p.be ? i : p.size - 1 - i] = dv.getUint8(i);
+        bytes = this.encodeFloat(Number(conv), p.size, p.be);
         break;
       }
       case "bool": bytes = this.encodeInt(conv ? 1n : 0n, p.size, p.be); break;
@@ -1067,7 +1131,8 @@ export class PatternInstance {
       case "padding": return;
       default: bytes = this.encodeInt(this.toInt(conv), p.size, p.be);
     }
-    this.mem(p.section).write!(p.offset, bytes);
+    mem.write!(p.offset, bytes);
+    p.hasOverride = false;
   }
 
   /** Convert a value to the representation of a scalar pattern kind. */
@@ -1229,7 +1294,7 @@ export class PatternInstance {
       else vr.v = v instanceof Pattern && !v.isComposite() ? this.value(v) : v;
       return;
     }
-    const p = this.evalExpr(target);
+    const p = this.evalExpr(target, this.writeMain);
     if (!(p instanceof Pattern)) this.error("cannot assign to a non-variable expression", target.loc);
     if (op !== "=") v = this.binop(op.slice(0, -1), this.decay(p), this.decay(v), target.loc);
     this.assignPattern(p, v);
@@ -1307,7 +1372,7 @@ export class PatternInstance {
     return undefined;
   }
 
-  evalExpr(e: A.Expr): any {
+  evalExpr(e: A.Expr, lvalue = false): any {
     switch (e.k) {
       case "lit": return e.v;
       case "id": {
@@ -1348,7 +1413,7 @@ export class PatternInstance {
           return m;
         }
         if (!m) this.error("no member named '" + e.name + "' in " + o.typeName, e.loc);
-        return m.kind === "pointer" ? m.pointee : m;
+        return m.kind === "pointer" && !lvalue ? m.pointee : m;
       }
       case "index": {
         if (e.obj.k === "dollar") {
@@ -1363,12 +1428,18 @@ export class PatternInstance {
           if (o.kind === "string" || o.kind === "wstring") {
             const s = this.value(o) as string;
             if (i < 0 || i >= (o.hasOverride ? s.length : o.size / (o.kind === "wstring" ? 2 : 1))) this.error("index " + i + " out of bounds", e.loc);
+            if (lvalue && !o.hasOverride) {
+              const width = o.kind === "wstring" ? 2 : 1;
+              const p = new Pattern(width === 2 ? "char16" : "char", width === 2 ? "char16" : "char");
+              p.section = o.section; p.offset = o.offset + i * width; p.size = width; p.be = o.be;
+              return p;
+            }
             return new Chr(s.charCodeAt(i) || 0, o.kind === "wstring");
           }
           if (o.kind !== "array") this.error("cannot index a non-array pattern", e.loc);
           const en = o.entry(i);
           if (!en) this.error("array index " + i + " out of bounds (size " + o.entryCount() + ")", e.loc);
-          return en.kind === "pointer" ? en.pointee : en;
+          return en.kind === "pointer" && !lvalue ? en.pointee : en;
         }
         if (typeof o === "string") {
           if (i < 0 || i >= o.length) this.error("string index " + i + " out of bounds", e.loc);
@@ -1703,16 +1774,25 @@ export class PatternInstance {
     return this.formatValue(v);
   }
 
-  /** Evaluate an expression in the global scope of this (already evaluated) instance. */
+  /** Evaluate an expression or assignment in the global scope of this instance. */
   evaluateExpression(src: string): any {
-    const e = parseExpression(src, this.types.keys());
+    const s = parseEvaluation(src, this.types.keys());
     if (!this.global) {
       const root = new Scope();
       this.global = { scope: root, root, kind: "global", ns: [], binds: new Map() };
     }
     this.frames = [this.global];
-    return this.evalExpr(e);
+    this.invalidateData();
+    const save = this.writeMain;
+    this.writeMain = true;
+    try {
+      if (s.s === "expr") return this.evalExpr(s.e);
+      this.exec(s, this.global);
+    } finally { this.writeMain = save; }
   }
+
+  /** Refresh host reads after external writes or writes from another instance. */
+  invalidateData(): void { if (this.data.invalidate) this.data.invalidate(); }
 
   /** Human readable rendering of any runtime value (dump style). */
   describe(v: any, base = 0): string {

@@ -11,6 +11,8 @@ export interface HexpatHost {
   size(): number;
   /** Read `size` bytes at pattern address `addr` (short reads are zero-padded). */
   read(addr: number, size: number): Uint8Array;
+  /** Write bytes at a pattern address, or throw on failure (optional for read-only hosts). */
+  write?(addr: number, bytes: Uint8Array): void;
   /** Output of std::print and friends (defaults to console.log). */
   print?(msg: string): void;
   /** Resolve an `#include` / `import` path relative to the including source. */
@@ -26,6 +28,11 @@ export class BufferHost implements HexpatHost {
     const out = new Uint8Array(size);
     if (addr < this.data.length) out.set(this.data.subarray(addr, Math.min(this.data.length, addr + size)));
     return out;
+  }
+  write(addr: number, bytes: Uint8Array): void {
+    if (!Number.isSafeInteger(addr) || addr < 0 || addr + bytes.length > this.data.length)
+      throw new Error("write outside the data");
+    this.data.set(bytes, addr);
   }
   resolve(path: string): HexpatSource | undefined {
     for (const n of [path, path + ".hexpat", path + ".pat"]) if (n in this.sources) return { name: n, src: this.sources[n] };

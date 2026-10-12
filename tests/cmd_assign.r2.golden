@@ -1,0 +1,31 @@
+-- assignments write r2 I/O
+421991804 (0x1927157c)
+03000000
+value (u32) @ 0x00000000 = 3 (0x3)
+3 (0x3)
+true
+true
+13 (0xd)
+"a=b"
+0d0000001234fe00
+79567856
+-- bitfields preserve neighboring bits
+e36ffffb
+-- strings and floats use the declared byte order
+6163000000410042
+0000c03fc000000000000000003e
+-- function assignments and other loaded sessions share I/O
+  value (u32) @ 0x00000000 = 9 (0x9)
+  value (u32) @ 0x00000000 = 9 (0x9)
+-- reads refresh after an external write
+10 (0xa)
+  value (u32) @ 0x00000000 = 10 (0xa)
+  value (u32) @ 0x00000000 = 10 (0xa)
+-- read-only I/O rejects writes without changing the field
+ERROR: Cannot write. Use `omp`, `io.cache` or reopen the file in rw with `oo+`
+7c152719
+421991804 (0x1927157c)
+-- base addresses also apply to writes
+03000000
+value (u32) @ 0x00001000 = 3 (0x3)
+hexpat: cannot write at 0x0: open with -w or enable io.cache

@@ -33,7 +33,7 @@ Commands (all output goes through r2's console, so `~grep` and `|` work):
 | `hexpatj [file]` | patterns as JSON (`hexpatj~{}` to indent) |
 | `hexpat* [file]` | patterns as r2 commands: flags in the `hexpat` flagspace, `Cd`/`Cs` data hints and value comments (`.hexpat*` applies them) |
 | `hexpatl[j]` | list loaded files and their top-level patterns |
-| `hexpate expr` | evaluate an expression in the context of the last loaded file (`hexpate sizeof(header)`, `hexpate $[0x10]`) |
+| `hexpate expr` | evaluate an expression or assignment in the last loaded file (`hexpate sizeof(header)`, `hexpate header.value = 3`) |
 | `hexpats [file]` | one-line summary (types with their field count, enums, functions, patterns, size) or the error, meant for status bars |
 | `hexpat?` | help |
 
@@ -43,6 +43,17 @@ change and show `hexpats base64:...` in a status bar for live feedback.
 
 Addresses are r2 addresses: pattern offsets are translated by the binary's
 base address (`ij.bin.baddr`), or `#pragma base_address 0x...`.
+
+`hexpate header.value = 3` writes the field's bytes through r2 I/O, using its
+declared size and byte order. Compound assignments (`+=`, `|=`, etc.), array
+entries and bitfield members also work. Open r2 with `-w`, or enable
+`e io.cache=true` to stage edits in r2's write cache. Assignments print nothing;
+query the field again or use `p8` to inspect the result. Editing a count or
+pointer does not rebuild the pattern layout; reload the pattern file when
+its layout changes. Fields with `[[transform(...)]]` cannot be written because
+the transform has no inverse.
+Quote the whole r2 command when it contains operators that r2 handles itself,
+for example `"hexpate header.value |= 8"` or `"hexpate header.value >= 3"`.
 
 ## Library
 
@@ -63,10 +74,14 @@ inst.dump();
 ```
 
 `toJson(inst)` serializes the placed patterns, `inst.evaluateExpression(src)`
-evaluates an expression in the global scope of an evaluated pattern and
+evaluates an expression or assignment in the global scope of an evaluated pattern and
 `BufferHost` is a ready-made host over a `Uint8Array`. `HostHooks` adds
 functions, types, pragma handlers and `in` variables, like the C++ runtime's
 `addFunction`/`addType`/`addPragma`.
+
+Hosts can implement `write(addr, bytes)` for interactive field assignments;
+read-only hosts reject those writes. Assignments while evaluating a pattern
+file retain ImHex's value overrides and do not write host data.
 
 ## Test
 

@@ -25,6 +25,7 @@ export class Pattern {
   section = MAIN_SECTION;
   offset = 0;
   size = 0;
+  alignment = 1;          // alignment of an independently instantiated layout
   be = false;
   parent?: Pattern;
   attrs?: { name: string; args: any[] }[];

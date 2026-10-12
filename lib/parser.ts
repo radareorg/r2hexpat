@@ -308,7 +308,7 @@ class Parser {
     }
   }
 
-  private parseAssignment(): A.Stmt {
+  private parseAssignment(): Extract<A.Stmt, { s: "assign" }> {
     const loc = this.loc();
     let target: A.Expr;
     if (this.acceptOp("$")) target = { k: "dollar", loc };
@@ -325,6 +325,17 @@ class Parser {
     this.semis();
     this.expectEnd();
     return s;
+  }
+
+  parseAssignments(): Extract<A.Stmt, { s: "assign" }>[] {
+    const out: Extract<A.Stmt, { s: "assign" }>[] = [];
+    while (this.peek().k !== "eof") {
+      if (!this.atAssignment()) this.err("expected a field assignment");
+      out.push(this.parseAssignment());
+      this.semis();
+      this.acceptOp(",");
+    }
+    return out;
   }
 
   /** Parse one statement (or declaration) and append it to `out`. */
@@ -789,4 +800,17 @@ export function parseExpression(src: string, knownTypes: Iterable<string> = []):
 /** Parse an interactive expression or assignment against a loaded pattern. */
 export function parseEvaluation(src: string, knownTypes: Iterable<string> = []): A.Stmt {
   return expressionParser(src, knownTypes).parseEvaluation();
+}
+
+/** Parse a type name, including endian qualifiers and template arguments. */
+export function parseType(src: string, knownTypes: Iterable<string> = []): A.TypeApp {
+  const p = expressionParser(src, knownTypes);
+  const t = p.parseType();
+  p.expectEnd();
+  return t;
+}
+
+/** Field assignments separated by whitespace, commas or semicolons. */
+export function parseAssignments(src: string, knownTypes: Iterable<string> = []): Extract<A.Stmt, { s: "assign" }>[] {
+  return expressionParser(src, knownTypes).parseAssignments();
 }

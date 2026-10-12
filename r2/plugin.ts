@@ -3,7 +3,7 @@
  * plugin.ts - radare2 core plugin (r2js) running the hexpat library.
  * R2Host implements the library's HexpatHost interface on top of r2 commands.
  */
-import { compile, evaluate, pragma, toJson, walkPatterns, HexpatHost, PatternError, PatternInstance, Pattern } from "../lib/index";
+import { compile, evaluate, pragma, toJson, walkPatterns, HexpatHost, PatternError, PatternInstance, Pattern, SearchPattern } from "../lib/index";
 import * as A from "../lib/ast";
 
 /** Host accessing r2 I/O (`p8`/`wx`), translated by a base address. */
@@ -73,7 +73,7 @@ export class R2Host implements HexpatHost {
 const VERSION = "0.2.0";
 
 const HELP = [
-  "Usage: hexpat[?+-jl*es] [args]  # ImHex pattern language",
+  "Usage: hexpat[?+-jl*esp] [args]  # ImHex pattern language",
   "| hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns",
   "| hexpat                       show the patterns of the loaded files",
   "| hexpat+ [-I dir] file        evaluate file and add it to the loaded ones",
@@ -84,6 +84,7 @@ const HELP = [
   "| hexpatl[j]                   list the loaded files and their top-level patterns",
   "| hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars",
   "| hexpate expr                 evaluate an expression or assignment in the last loaded file (writes r2 I/O)",
+  "| hexpatp[?+=-ijl] ...         create partial instances and masked search patterns (hexpatp? for help)",
   "| hexpat?                      show this help",
   "| options: -q (evaluate only), -I dir (add #include / import search path)",
   "| file can be 'base64:<data>' to evaluate the encoded source instead of reading a file",
@@ -93,12 +94,136 @@ interface Session { file: string; program: A.Program; instance: PatternInstance;
 
 const B64 = "base64:";
 const sessions: Session[] = [];
+const searchPatterns = new Map<string, SearchPattern>();
+
+const PATTERN_HELP = [
+  "Usage: hexpatp[?+=-ijl] [options] [args]  # partial instances for /x searches",
+  "| hexpatp [options] Type [field=expr ...]       one-shot /x bytes:mask; omitted fields are wildcards",
+  "| hexpatp name                                /x bytes:mask of a named instance",
+  "| hexpatp+ [options] name Type [field=expr ...]  create a named instance (all fields start unset)",
+  "| hexpatp= name field=expr ...                 set fields; zero is a defined value",
+  "| hexpatp- name field ...                      unset fields (or aggregates)",
+  "| hexpatp- name                               delete the named instance; '*' deletes all",
+  "| hexpatpi [options] name|Type [fields ...]    inspect offsets, sizes and set/unset fields",
+  "| hexpatpj [options] name|Type [fields ...]    inspect as JSON, including bytes and bit mask",
+  "| hexpatpl[j]                                 list named instances (optionally JSON)",
+  "| options: -f file (compile types only), -I dir (includes), -a/--align 1|2|4|8|16",
+  "| defaults: last loaded file, packed layout (-a 1); pointers use explicit hexpat widths",
+  "| fields: nested.member=expr, array[index]=expr; enum names, arithmetic and quoted strings work",
+  "| padding stays wildcarded; dynamic layouts and conflicting union fields are rejected",
+  "| search: /x `hexpatp -f game.hexpat Player health=100 lives=3`",
+];
 
 /** Collect output lines and print them through r_cons at once (so ~grep and | work). */
 class Out {
   lines: string[] = [];
   push = (s: string): void => { this.lines.push(s); };
   flush(): void { if (this.lines.length) r2.log(this.lines.join("\n")); this.lines = []; }
+}
+
+/** Read one CLI argument while retaining the remainder as pattern-language expressions. */
+function word(src: string): { value: string; rest: string } {
+  const s = src.trimStart();
+  if (!s) return { value: "", rest: "" };
+  const quote = s[0] === '"' || s[0] === "'" ? s[0] : "";
+  let value = "", i = quote ? 1 : 0;
+  for (; i < s.length; i++) {
+    if (quote ? s[i] === quote : /\s/.test(s[i])) return { value, rest: s.substring(i + 1).trimStart() };
+    if (quote && s[i] === "\\" && i + 1 < s.length && (s[i + 1] === quote || s[i + 1] === "\\")) i++;
+    value += s[i];
+  }
+  if (quote) throw new Error("unterminated quoted argument");
+  return { value, rest: "" };
+}
+
+function patternOptions(src: string): { file: string; includeDirs: string[]; alignment?: number; rest: string } {
+  const opts = { file: "", includeDirs: [] as string[], alignment: undefined as number | undefined, rest: src.trim() };
+  while (opts.rest.startsWith("-")) {
+    const flag = word(opts.rest), arg = word(flag.rest);
+    if (!["-f", "--file", "-I", "-a", "--align"].includes(flag.value)) throw new Error("unknown search option '" + flag.value + "'");
+    if (!arg.value) throw new Error("missing value for " + flag.value);
+    if (flag.value === "-f" || flag.value === "--file") opts.file = arg.value;
+    else if (flag.value === "-I") opts.includeDirs.push(arg.value);
+    else opts.alignment = Number(arg.value);
+    opts.rest = arg.rest;
+  }
+  return opts;
+}
+
+function searchProgram(file: string, includeDirs: string[]): A.Program {
+  if (!file) {
+    const s = sessions[sessions.length - 1];
+    if (!s) throw new Error("no types loaded: use -f file or load a pattern with hexpat");
+    if (includeDirs.length) throw new Error("-I requires -f when creating a search pattern");
+    return s.program;
+  }
+  const host = new R2Host(r2);
+  host.includeDirs = includeDirs;
+  const inline = file.startsWith(B64);
+  const src = inline ? b64(file.substring(B64.length), true) : host.readFile(file);
+  if (!src) throw new Error("cannot read " + file);
+  return compile(src, host, inline ? "base64" : file);
+}
+
+function patternCommand(tail: string, out: Out): void {
+  const mode = tail[0] && "+=-ijl?".includes(tail[0]) ? tail[0] : "";
+  let rest = (mode ? tail.substring(1) : tail).trim();
+  if (mode === "?" || (!mode && (!rest || rest === "-h" || rest === "--help"))) {
+    for (const line of PATTERN_HELP) out.push(line);
+    return;
+  }
+  const named = (name: string): SearchPattern => {
+    const p = searchPatterns.get(name);
+    if (!p) throw new Error("no search instance '" + name + "'; use hexpatpl or hexpatp+");
+    return p;
+  };
+  if (mode === "l") {
+    const items = Array.from(searchPatterns, ([name, p]) => ({ name, type: p.type, size: p.size, alignment: p.alignment,
+      state: p.state(), defined: p.fields().filter((f) => f.defined).length, fields: p.fields().length }));
+    if (rest === "j") out.push(JSON.stringify(items));
+    else if (rest) throw new Error("Usage: hexpatpl[j]");
+    else for (const i of items) out.push(i.name + " " + i.type + " size=" + i.size + " align=" + i.alignment + " fields=" + i.defined + "/" + i.fields);
+    return;
+  }
+  if (mode === "=" || mode === "-") {
+    const arg = word(rest);
+    if (!arg.value) throw new Error(mode === "=" ? "Usage: hexpatp= name field=expr ..." : "Usage: hexpatp- name [field ...]");
+    if (mode === "-") {
+      if (!arg.rest) {
+        if (arg.value === "*") searchPatterns.clear();
+        else { named(arg.value); searchPatterns.delete(arg.value); }
+      } else {
+        const p = named(arg.value), fields = arg.rest.split(/\s+/);
+        for (const f of fields) p.state(f); // validate all paths before changing the instance
+        for (const f of fields) p.unset(f);
+      }
+    } else named(arg.value).assign(arg.rest);
+    return;
+  }
+  const opts = patternOptions(rest);
+  let arg = word(opts.rest), name = "";
+  if (mode === "+") {
+    name = arg.value;
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) throw new Error("search instance name must be an identifier");
+    if (searchPatterns.has(name)) throw new Error("search instance '" + name + "' already exists; delete it with hexpatp-");
+    arg = word(arg.rest);
+  }
+  if (!arg.value) throw new Error("missing type or instance name; see hexpatp?");
+  let p = mode !== "+" && !opts.file ? searchPatterns.get(arg.value) : undefined;
+  if (p) {
+    name = arg.value;
+    if (opts.alignment !== undefined || opts.includeDirs.length || arg.rest) throw new Error("use hexpatp= to update a named instance");
+  } else {
+    p = new SearchPattern(searchProgram(opts.file, opts.includeDirs), arg.value, { alignment: opts.alignment });
+    if (arg.rest) p.assign(arg.rest);
+  }
+  if (mode === "+") { searchPatterns.set(name, p); return; }
+  if (mode === "j") out.push(JSON.stringify({ ...(name ? { name } : {}), ...p.toJSON() }));
+  else if (mode === "i") {
+    out.push((name ? name + " " : "") + p.type + " size=" + p.size + " align=" + p.alignment + " (" + p.state() + ")");
+    for (const f of p.fields()) out.push("  0x" + f.offset.toString(16).padStart(4, "0") + " " + String(f.size).padStart(4) +
+      " " + f.path + " (" + f.type + (f.bits === undefined ? "" : ":" + f.bits) + ") = " + (f.defined ? JSON.stringify(f.value) : "unset"));
+  } else out.push(p.toR2());
 }
 
 function parseArgs(args: string[]): { quiet: boolean; includeDirs: string[]; file: string } {
@@ -306,6 +431,7 @@ function hexpatCommand(cmd: string): void {
         if (d !== "") out.push(d);
         break;
       }
+      case "p": patternCommand(cmd.substring(7), out); break;
       default:
         for (const l of HELP) out.push(l);
     }
@@ -329,7 +455,7 @@ function hexpatCommand(cmd: string): void {
       call: function (cmd: string) {
         if (!cmd.startsWith("hexpat")) return false;
         const c = cmd.charAt(6);
-        if (c !== "" && " ?h+-j*les".indexOf(c) < 0) return false;
+        if (c !== "" && " ?h+-j*lesp".indexOf(c) < 0) return false;
         hexpatCommand(cmd);
         return true;
       },

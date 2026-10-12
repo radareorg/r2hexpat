@@ -11,7 +11,7 @@ import * as A from "./ast";
 import { uintN, intN } from "./bigint";
 import { Chr } from "./ast";
 import { PatternError } from "./lexer";
-import { parseEvaluation } from "./parser";
+import { parseEvaluation, parseType } from "./parser";
 import { Pattern, PKind, EnumInfo, BitMode, MAIN_SECTION, HEAP_SECTION } from "./patterns";
 import { Memory, BufferMemory, SparseMemory } from "./memory";
 import { callBuiltin, formatString } from "./stdlib";
@@ -61,6 +61,13 @@ export interface HostHooks {
   inVariables?: Record<string, any>;
 }
 
+export interface LayoutOptions {
+  /** Maximum natural member alignment: 1 (packed), 2, 4, 8 or 16. */
+  alignment?: number;
+  /** Maximum size of an independently instantiated layout (default: 1 MiB). */
+  maxSize?: number;
+}
+
 const INT_TYPES: Record<string, number> = {
   u8: 1, u16: 2, u24: 3, u32: 4, u48: 6, u64: 8, u96: 12, u128: 16,
   s8: 1, s16: 2, s24: 3, s32: 4, s48: 6, s64: 8, s96: 12, s128: 16,
@@ -102,6 +109,9 @@ export class PatternInstance {
   private patternCount = 0;
   private printFn: (s: string) => void;
   private writeMain = false; // interactive assignments write through; pattern evaluation keeps ImHex overrides
+  private layoutOnly = false;
+  private layoutFields = new WeakSet<Pattern>();
+  private alignmentStack = [1];
 
   constructor(private program: A.Program, private data: Memory, private host: HostHooks = {}, print?: (s: string) => void) {
     this.sections.set(MAIN_SECTION, data);
@@ -114,11 +124,7 @@ export class PatternInstance {
 
   // ------------------------------------------------------------------ setup
   eval(): void {
-    for (const [k, v] of this.program.pragmas) this.pragma(k, v);
-    this.register(this.program.body);
-    const root = new Scope();
-    this.global = { scope: root, root, kind: "global", ns: [], binds: new Map() };
-    this.frames = [this.global];
+    this.initialize();
     try {
       this.execBlock(this.program.body, this.global);
     } catch (e) {
@@ -130,6 +136,48 @@ export class PatternInstance {
     }
     const main = this.fns.get("main");
     if (main) this.callFn(main, [], main.loc);
+  }
+
+  private initialize(): void {
+    for (const [k, v] of this.program.pragmas) this.pragma(k, v);
+    this.register(this.program.body);
+    const root = new Scope();
+    this.global = { scope: root, root, kind: "global", ns: [], binds: new Map() };
+    this.frames = [this.global];
+  }
+
+  /** Load types and constant globals without decoding placements or running main(). */
+  prepareTypes(): void {
+    this.initialize();
+    const constants = (body: A.Stmt[]): A.Stmt[] => body.flatMap((s): A.Stmt[] => {
+      if (s.s === "decl") return s.isConst && !s.placement && s.init ? [s] : [];
+      if (s.s === "multi") return constants(s.decls);
+      if (s.s === "nsctx") return [{ ...s, body: constants(s.body) }];
+      return [];
+    });
+    this.execBlock(constants(this.program.body), this.global);
+  }
+
+  /** Build a fixed layout at offset zero, without reading any instance data. */
+  instantiateType(type: string, options: LayoutOptions = {}): Pattern {
+    const alignment = options.alignment === undefined ? 1 : options.alignment;
+    if (![1, 2, 4, 8, 16].includes(alignment)) this.error("alignment must be 1, 2, 4, 8 or 16");
+    this.layoutOnly = true;
+    this.alignmentStack = [alignment];
+    this.cursor = 0;
+    try {
+      const p = this.create(this.resolveType(parseType(type, this.types.keys())), "");
+      const max = options.maxSize === undefined ? 0x100000 : options.maxSize;
+      if (!Number.isSafeInteger(p.size) || p.size < 0 || p.size > max) this.error("layout exceeds maximum size " + max);
+      return p;
+    } finally { this.layoutOnly = false; this.alignmentStack = [1]; }
+  }
+
+  /** Encode a field using the same conversions and byte order as interactive writes. */
+  writePattern(p: Pattern, value: any): void {
+    const save = this.writeMain;
+    this.writeMain = true;
+    try { this.assignPattern(p, value); } finally { this.writeMain = save; }
   }
 
   private pragma(key: string, value: string): void {
@@ -343,6 +391,10 @@ export class PatternInstance {
     p.size = size;
     p.be = be;
     p.local = this.section === HEAP_SECTION;
+    if (this.layoutOnly) {
+      this.layoutFields.add(p);
+      p.alignment = size > 0 && (size & (size - 1)) === 0 ? Math.min(size, this.alignmentStack[this.alignmentStack.length - 1]) : 1;
+    }
     return p;
   }
 
@@ -361,6 +413,7 @@ export class PatternInstance {
         const d = c.decl;
         if (d.s === "enum") {
           const ut = this.resolveInFrame(d.underlying, d.ns);
+          if (this.layoutOnly && (ut.t !== "builtin" || !(ut.name in INT_TYPES))) this.error("search enums require integer storage");
           if (ut.t === "builtin") {
             p = this.newPattern("enum", c.display, ut.size, this.endian(ut));
             if (ut.name[0] === "s") p.fieldKind = "signed";
@@ -438,6 +491,7 @@ export class PatternInstance {
     p.parent = this.curFrame.pattern;
     const start = this.cursor;
     const fr = this.pushFrame("struct", p, d.ns, c.binds);
+    if (this.layoutOnly) this.alignmentStack.push(this.attrOf(d.attrs, "packed") || this.attrOf(c.attrs, "packed") ? 1 : this.alignmentStack[this.alignmentStack.length - 1]);
     fr.placeBase = placeBase;
     try {
       const run = (decl: A.StructDecl, binds: Map<string, any>) => {
@@ -467,7 +521,8 @@ export class PatternInstance {
       if (!p.children) p.children = [];
       // type attributes see the struct's members (`[[name(name), color(...)]]`)
       this.applyTypeAttrs(p, c);
-    } finally { this.frames.pop(); }
+      if (this.layoutOnly) p.size = Math.ceil(p.size / p.alignment) * p.alignment;
+    } finally { this.frames.pop(); if (this.layoutOnly) this.alignmentStack.pop(); }
     this.cursor = start + p.size;
     return p;
   }
@@ -536,6 +591,10 @@ export class PatternInstance {
   /** Apply `[[attributes]]` to a created pattern. */
   applyAttrs(p: Pattern, attrs: A.Attr[], typeLevel = false): void {
     for (const a of attrs) {
+      if (this.layoutOnly) {
+        if (a.name === "transform") this.error("search layouts require raw fields; transforms are not supported");
+        if (!["fixed_size", "align", "packed", "no_unique_address", "bitfield_order", "left_to_right", "right_to_left"].includes(a.name)) continue;
+      }
       let args: any[];
       if (a.name === "fixed_size" || a.name === "transform" || a.name === "format" || a.name === "format_read") {
         args = a.args.map((e) => this.evalExpr(e));
@@ -546,6 +605,13 @@ export class PatternInstance {
       if (!p.attrs) p.attrs = [];
       p.attrs.push({ name: a.name, args });
       switch (a.name) {
+        case "align":
+          if (this.layoutOnly) {
+            const n = Number(this.toInt(args[0]));
+            if (![1, 2, 4, 8, 16].includes(n)) this.error("field alignment must be 1, 2, 4, 8 or 16");
+            p.alignment = n;
+          }
+          break;
         case "hidden": p.hidden = true; break;
         case "sealed": p.sealed = true; break;
         case "format": case "format_read": p.formatFn = this.toStr(args[0]); break;
@@ -555,7 +621,8 @@ export class PatternInstance {
         case "name": if (args[0] !== undefined) p.displayName = this.toStr(this.decay(args[0])); break;
         case "fixed_size": {
           const n = Number(this.toInt(args[0]));
-          if (!typeLevel && p.size > n) this.error("pattern of size " + p.size + " exceeds fixed_size(" + n + ")");
+          if ((!typeLevel || this.layoutOnly) && p.size > n) this.error("pattern of size " + p.size + " exceeds fixed_size(" + n + ")");
+          if (this.layoutOnly && !p.isComposite() && p.size !== n) this.error("use explicit padding after scalar fields instead of fixed_size");
           p.size = n;
           this.cursor = p.offset + n;
           break;
@@ -594,8 +661,22 @@ export class PatternInstance {
     } else {
       p = this.createDecl(d);
     }
+    if (this.layoutOnly && fr.kind === "struct") {
+      const offset = parent.offset + Math.ceil((start - parent.offset) / p.alignment) * p.alignment;
+      this.relocateLayout(p, offset - start);
+      this.cursor = offset + p.size;
+      parent.alignment = Math.max(parent.alignment, p.alignment);
+    }
     if (this.attrOf(d.attrs, "no_unique_address")) this.cursor = start;
     this.addMember(fr, p, d);
+  }
+
+  private relocateLayout(p: Pattern, delta: number, modes = new Set<BitMode>()): void {
+    p.offset += delta;
+    if (p.bitMode && !modes.has(p.bitMode)) { modes.add(p.bitMode); p.bitMode.root += delta; }
+    for (const c of p.children || []) this.relocateLayout(c, delta, modes);
+    if (p.proto) this.relocateLayout(p.proto, delta, modes);
+    if (p.entries) for (const e of p.entries.values()) this.relocateLayout(e, delta, modes);
   }
 
   private addMember(fr: Frame, p: Pattern, d: A.DeclStmt): void {
@@ -745,6 +826,7 @@ export class PatternInstance {
     const ptr = this.newPattern("pointer", "", sizeType.size, this.endian(sizeType));
     ptr.fieldKind = sizeType.name[0] === "s" ? "signed" : "unsigned";
     this.cursor += sizeType.size;
+    if (this.layoutOnly) { ptr.typeName = this.typeDisplay(c) + "*"; return ptr; }
     const end = this.cursor;
     let addr = this.toInt(this.readScalar(ptr, ptr.fieldKind === "signed" ? "signed" : "unsigned"));
     const pb = this.attrOf(d.attrs, "pointer_base");
@@ -782,6 +864,7 @@ export class PatternInstance {
     const kindFor = (): PKind => (elemName === "char" ? "string" : elemName === "char16" ? "wstring" : elemName === "padding" ? "padding" : "array");
     const arr = this.newPattern(kindFor(), "", 0, proto ? proto.be : this.endian(c));
     arr.parent = this.curFrame.pattern;
+    if (this.layoutOnly && proto) arr.alignment = proto.alignment;
     arr.children = undefined;
     const elemType = this.typeDisplay(c);
     let count = 0;
@@ -829,6 +912,7 @@ export class PatternInstance {
         let e: Pattern;
         try { e = this.create(c, "[" + arr.children!.length + "]"); } finally { this.arrayIndex = saveIdx; }
         e.parent = arr;
+        if (this.layoutOnly) arr.alignment = Math.max(arr.alignment, e.alignment);
         arr.children!.push(e);
         // `break` in an entry keeps it and ends the array, `continue` drops it
         const ctrl = this.pendingCtrl;
@@ -880,6 +964,7 @@ export class PatternInstance {
     if (!d.name) { bit.pos += width; return; } // padding
     const c = this.resolveType(d.type);
     const p = new Pattern("bitfield_field", "");
+    if (this.layoutOnly) this.layoutFields.add(p);
     p.section = this.section;
     p.local = this.section === HEAP_SECTION;
     p.bitMode = bit.mode;
@@ -966,6 +1051,11 @@ export class PatternInstance {
 
   /** The value of a pattern (decays scalars; composites stay patterns). */
   value(p: Pattern, raw = false): any {
+    if (this.layoutOnly) {
+      for (let q: Pattern | undefined = p; q; q = q.parent) {
+        if (this.layoutFields.has(q)) this.error("layout depends on unset field '" + (p.name || p.typeName) + "'");
+      }
+    }
     if (!raw && p.transformFn) {
       const fn = this.findFn(p.transformFn);
       if (!fn) this.error("transform function '" + p.transformFn + "' not found");
@@ -1175,6 +1265,14 @@ export class PatternInstance {
 
   exec(s: A.Stmt, fr: Frame): void {
     this.loc = s.loc;
+    if (this.layoutOnly && (fr.kind === "struct" || fr.kind === "bitfield")) {
+      if (s.s !== "decl" && s.s !== "multi") this.error("search layouts require fixed declarations, not '" + s.s + "'", s.loc);
+      const decls = s.s === "decl" ? [s] : s.s === "multi" ? s.decls : [];
+      for (const d of decls) {
+        if (d.init || d.placement || d.section || d.isIn || d.isOut || (d.array && d.array.k !== "fixed"))
+          this.error("search layouts require fixed, contiguous fields", d.loc);
+      }
+    }
     switch (s.s) {
       case "decl": this.execDecl(s, fr); return;
       case "multi": for (const d of s.decls) this.execDecl(d, fr); return;
@@ -1373,6 +1471,8 @@ export class PatternInstance {
   }
 
   evalExpr(e: A.Expr, lvalue = false): any {
+    if (this.layoutOnly && (e.k === "dollar" || (e.k === "typeop" && e.op === "addressof")))
+      this.error("search layouts cannot depend on instance addresses", e.loc);
     switch (e.k) {
       case "lit": return e.v;
       case "id": {

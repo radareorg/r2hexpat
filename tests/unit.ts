@@ -1,5 +1,6 @@
 /// <reference path="../lib/globals.d.ts" />
 import { runHexpat, BufferHost } from "../lib/index";
+import { testSearchPatterns } from "./search_unit";
 
 const src = `
 struct Header {
@@ -154,3 +155,4 @@ const transformed = runHexpat('fn decode(auto v) { return v + 1; }; u8 value @ 0
 fails(transformed, "value = 3", "transformed field");
 check(editData[0] === 11, "rejected field write modified host bytes");
 console.log("[test] Interactive writes OK");
+testSearchPatterns();

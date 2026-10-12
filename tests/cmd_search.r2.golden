@@ -1,0 +1,63 @@
+-- search help
+Usage: hexpatp[?+=-ijl] [options] [args]  # partial instances for /x searches
+| hexpatp [options] Type [field=expr ...]       one-shot /x bytes:mask; omitted fields are wildcards
+| hexpatp name                                /x bytes:mask of a named instance
+| hexpatp+ [options] name Type [field=expr ...]  create a named instance (all fields start unset)
+| hexpatp= name field=expr ...                 set fields; zero is a defined value
+| hexpatp- name field ...                      unset fields (or aggregates)
+| hexpatp- name                               delete the named instance; '*' deletes all
+| hexpatpi [options] name|Type [fields ...]    inspect offsets, sizes and set/unset fields
+| hexpatpj [options] name|Type [fields ...]    inspect as JSON, including bytes and bit mask
+| hexpatpl[j]                                 list named instances (optionally JSON)
+| options: -f file (compile types only), -I dir (includes), -a/--align 1|2|4|8|16
+| defaults: last loaded file, packed layout (-a 1); pointers use explicit hexpat widths
+| fields: nested.member=expr, array[index]=expr; enum names, arithmetic and quoted strings work
+| padding stays wildcarded; dynamic layouts and conflicting union fields are rejected
+| search: /x `hexpatp -f game.hexpat Player health=100 lives=3`
+-- one-shot patterns from a file, independent of current data
+6400000003000000000000000000000000000000000000000000000000:ffffffffffffffff000000000000000000000000000000000000000000
+6400000003000000000000000000000000000000000000000000000000000000:ffffffffffffffff000000000000000000000000000000000000000000000000
+613d6220630000003412:ffffffffffffffffffff
+00000300:0000ffff
+-- named instances start unset, including zero-valued fields
+wanted Player size=32 align=8 (unset)
+  0x0000    4 health (u32) = unset
+  0x0004    4 lives (u32) = unset
+  0x0008    1 role (Role) = unset
+  0x000c    4 position.x (float) = unset
+  0x0010    4 position.y (float) = unset
+  0x0014    4 position.z (float) = unset
+  0x0018    8 next (Player*) = unset
+wanted Player size=32 align=8 (partial)
+  0x0000    4 health (u32) = 0
+  0x0004    4 lives (u32) = 3
+  0x0008    1 role (Role) = unset
+  0x000c    4 position.x (float) = unset
+  0x0010    4 position.y (float) = unset
+  0x0014    4 position.z (float) = 3
+  0x0018    8 next (Player*) = unset
+wanted Player size=32 align=8 fields=1/7
+[{"name":"wanted","type":"Player","size":32,"alignment":8,"state":"partial","defined":1,"fields":7}]
+{"name":"wanted","type":"Player","size":32,"alignment":8,"state":"partial","bytes":"0000000003000000000000000000000000000000000000000000000000000000","mask":"00000000ffffffff000000000000000000000000000000000000000000000000","pattern":"0000000003000000000000000000000000000000000000000000000000000000:00000000ffffffff000000000000000000000000000000000000000000000000","fields":[{"path":"health","type":"u32","offset":0,"size":4,"defined":false},{"path":"lives","type":"u32","offset":4,"size":4,"defined":true,"value":3},{"path":"role","type":"Role","offset":8,"size":1,"defined":false},{"path":"position.x","type":"float","offset":12,"size":4,"defined":false},{"path":"position.y","type":"float","offset":16,"size":4,"defined":false},{"path":"position.z","type":"float","offset":20,"size":4,"defined":false},{"path":"next","type":"Player*","offset":24,"size":8,"defined":false}]}
+-- use types from the last loaded file
+6400000003000000000000000000000000000000000000000000000000:ffffffffffffffff000000000000000000000000000000000000000000
+-- real /x searches with wildcard padding and unknown fields
+'fs hits
+0x00000000 hit0_0 640000000300000001ffffff112233445566778899aabbccddeeff0011223344
+0x00000040 hit0_1 640000000300000002ffffff112233445566778899aabbccddeeff0011223344
+'fs hits
+0x00000040 hit1_0 640000000300000002ffffff112233445566778899aabbccddeeff0011223344
+-- arbitrary bit masks match only the selected bitfield
+'fs hits
+0x00000060 hit2_0 03
+0x00000061 hit2_1 0b
+0x00000062 hit2_2 f3
+-- errors preserve the named instance
+6400000003000000020000000000000000000000000000000000000000000000:ffffffffffffffffff0000000000000000000000000000000000000000000000
+-- delete named instances and discard staged test bytes
+[]
+7c152719d7f552c8
+hexpat: search instance 'wanted' already exists; delete it with hexpatp-
+hexpat: unknown search field 'nope'
+hexpat: error: layout depends on unset field 'length' (tests/search_types.pat:3:32)
+hexpat: unknown search field 'missing'

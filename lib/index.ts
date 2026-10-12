@@ -14,6 +14,8 @@ export type { HexpatHost, HostHooks };
 export { Pattern } from "./patterns";
 export { toJson, patternToJson, walkPatterns, jsonValue } from "./output";
 export type { PatternJson, JsonOptions } from "./output";
+export { SearchPattern } from "./search";
+export type { SearchOptions, SearchField, SearchEncoding, FieldState } from "./search";
 
 export interface RunOptions {
   name?: string;       // source name for error messages and relative includes

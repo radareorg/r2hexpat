@@ -2,6 +2,7 @@
 import { runHexpat, BufferHost } from "../lib/index";
 import { testSearchPatterns } from "./search_unit";
 import { testMagic } from "./magic_unit";
+import { testTree } from "./tree_unit";
 
 const src = `
 struct Header {
@@ -158,3 +159,4 @@ check(editData[0] === 11, "rejected field write modified host bytes");
 console.log("[test] Interactive writes OK");
 testSearchPatterns();
 testMagic();
+testTree();

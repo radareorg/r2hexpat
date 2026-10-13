@@ -8,6 +8,7 @@ import { runHexpat, BufferHost } from "../lib/index";
 import { VIRTUAL_SOURCES, HOOKS } from "./upstream_hooks";
 import { testSearchPatterns } from "./search_unit";
 import { testMagic } from "./magic_unit";
+import { testTree } from "./tree_unit";
 
 const size = JSON.parse(r2.cmd("ij")).core.size;
 const hex = r2.cmd("p8 " + size + " @ 0").replace(/[^0-9a-fA-F]/g, "");
@@ -39,3 +40,4 @@ console.log("==================================");
 console.log("r2: " + passed + "/" + files.length + " passed" + (unexpected.length ? ", unexpected failures: " + unexpected.join(" ") : ""));
 try { testSearchPatterns(); } catch (e) { console.log("FAIL partial search patterns: " + String(e)); }
 try { testMagic(); } catch (e) { console.log("FAIL magic export: " + String(e)); }
+try { testTree(); } catch (e) { console.log("FAIL address-bound trees: " + String(e)); }

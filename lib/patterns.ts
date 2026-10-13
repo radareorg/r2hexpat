@@ -67,6 +67,11 @@ export class Pattern {
     return this.kind === "struct" || this.kind === "union" || this.kind === "array" || this.kind === "bitfield";
   }
 
+  /** Explicit member colors override the enclosing aggregate's color. */
+  getColor(): string | undefined {
+    return this.color === undefined ? this.parent?.getColor() : this.color;
+  }
+
   attr(name: string): { name: string; args: any[] } | undefined {
     if (this.attrs) for (const a of this.attrs) if (a.name === name) return a;
     return undefined;

@@ -12,8 +12,8 @@ import * as A from "./ast";
 export { parse, PatternInstance, PatternError, BufferHost };
 export type { HexpatHost, HostHooks };
 export { Pattern } from "./patterns";
-export { toJson, patternToJson, walkPatterns, jsonValue } from "./output";
-export type { PatternJson, JsonOptions } from "./output";
+export { toJson, patternToJson, walkPatterns, jsonValue, dumpTree, patternColor } from "./output";
+export type { PatternJson, JsonOptions, TreeOptions } from "./output";
 export { SearchPattern } from "./search";
 export type { SearchOptions, SearchField, SearchEncoding, FieldState } from "./search";
 
@@ -32,6 +32,13 @@ export function compile(src: string, host?: HexpatHost, name = "<source>", defin
 export function evaluate(program: A.Program, host: HexpatHost, hooks?: HostHooks): PatternInstance {
   const inst = new PatternInstance(program, new HostMemory(host), hooks, host.print ? (s) => host.print!(s) : undefined);
   inst.eval();
+  return inst;
+}
+
+/** Decode one type at a host offset, preparing types and constants only. */
+export function decodeType(program: A.Program, type: string, host: HexpatHost, offset = 0, hooks?: HostHooks): PatternInstance {
+  const inst = new PatternInstance(program, new HostMemory(host), hooks, host.print ? (s) => host.print!(s) : undefined);
+  inst.placeType(type, offset);
   return inst;
 }
 

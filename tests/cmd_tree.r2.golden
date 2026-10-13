@@ -1,0 +1,134 @@
+-- decode types without loading a session
+value (Header) @ 0x00000000 size=4 [[color("1144AA")]]
+|- count (u8) @ 0x00000000 = 124 (0x7c) [[color("FF0000"), comment("entry count")]]
+|- Details (Inner) @ 0x00000001 size=2 [[color("00FF00"), name("Details")]]
+|  `- word (u16) @ 0x00000001 = 5415 (0x1527) [[color("00FF00")]]
+`- data (u8[1]) @ 0x00000003 size=1 [[color("1144AA")]]
+   `- [0] (u8) @ 0x00000003 = 25 (0x19) [[color("1144AA")]]
+[{"name":"value","type":"Header","kind":"struct","addr":8,"offset":8,"size":5,"color":"1144AA","attributes":[{"name":"color","args":["1144AA"]}],"children":[{"name":"count","type":"u8","kind":"unsigned","addr":8,"offset":8,"size":1,"color":"FF0000","comment":"entry count","attributes":[{"name":"color","args":["FF0000"]},{"name":"comment","args":["entry count"]}],"value":131},{"name":"inner","type":"Inner","kind":"struct","addr":9,"offset":9,"size":2,"displayName":"Details","color":"00FF00","attributes":[{"name":"color","args":["00FF00"]},{"name":"name","args":["Details"]}],"children":[{"name":"word","type":"u16","kind":"unsigned","addr":9,"offset":9,"size":2,"color":"00FF00","value":48272}]},{"name":"data","type":"u8[2]","kind":"array","addr":11,"offset":11,"size":2,"color":"1144AA","count":2,"entries":[{"name":"[0]","type":"u8","kind":"unsigned","addr":11,"offset":11,"size":1,"color":"1144AA","value":164},{"name":"[1]","type":"u8","kind":"unsigned","addr":12,"offset":12,"size":1,"color":"1144AA","value":66}]}]}]
+[]
+-- current seek and address expressions
+value (Header) @ 0x00000008 size=5 [[color("1144AA")]]
+|- count (u8) @ 0x00000008 = 131 (0x83) [[color("FF0000"), comment("entry count")]]
+|- Details (Inner) @ 0x00000009 size=2 [[color("00FF00"), name("Details")]]
+|  `- word (u16) @ 0x00000009 = 48272 (0xbc90) [[color("00FF00")]]
+`- data (u8[2]) @ 0x0000000b size=2 [[color("1144AA")]]
+   |- [0] (u8) @ 0x0000000b = 164 (0xa4) [[color("1144AA")]]
+   `- [1] (u8) @ 0x0000000c = 66 (0x42) [[color("1144AA")]]
+value (Header) @ 0x00000008 size=5 [[color("1144AA")]]
+|- count (u8) @ 0x00000008 = 131 (0x83) [[color("FF0000"), comment("entry count")]]
+|- Details (Inner) @ 0x00000009 size=2 [[color("00FF00"), name("Details")]]
+|  `- word (u16) @ 0x00000009 = 48272 (0xbc90) [[color("00FF00")]]
+`- data (u8[2]) @ 0x0000000b size=2 [[color("1144AA")]]
+   |- [0] (u8) @ 0x0000000b = 164 (0xa4) [[color("1144AA")]]
+   `- [1] (u8) @ 0x0000000c = 66 (0x42) [[color("1144AA")]]
+-- base address, inline sources and include directories
+[{"name":"value","type":"Header","kind":"struct","addr":4104,"offset":8,"size":5,"color":"1144AA","attributes":[{"name":"color","args":["1144AA"]}],"children":[{"name":"count","type":"u8","kind":"unsigned","addr":4104,"offset":8,"size":1,"color":"FF0000","comment":"entry count","attributes":[{"name":"color","args":["FF0000"]},{"name":"comment","args":["entry count"]}],"value":131},{"name":"inner","type":"Inner","kind":"struct","addr":4105,"offset":9,"size":2,"displayName":"Details","color":"00FF00","attributes":[{"name":"color","args":["00FF00"]},{"name":"name","args":["Details"]}],"children":[{"name":"word","type":"u16","kind":"unsigned","addr":4105,"offset":9,"size":2,"color":"00FF00","value":48272}]},{"name":"data","type":"u8[2]","kind":"array","addr":4107,"offset":11,"size":2,"color":"1144AA","count":2,"entries":[{"name":"[0]","type":"u8","kind":"unsigned","addr":4107,"offset":11,"size":1,"color":"1144AA","value":164},{"name":"[1]","type":"u8","kind":"unsigned","addr":4108,"offset":12,"size":1,"color":"1144AA","value":66}]}]}]
+-- loaded pattern trees and one-shot types preserve the session
+head (Header) @ 0x00000000 size=16
+|- magic (u32) @ 0x00000000 = 421991804 (0x1927157c)
+|- version (u16) @ 0x00000004 = 62935 (0xf5d7)
+|- flags (u16) @ 0x00000006 = 51282 (0xc852)
+`- timestamp (u64) @ 0x00000008 = 13032463231746096259 (0xb4dc9c42a490bc83)
+[0] (u8) @ 0x00000015 = 126 (0x7e)
+[{"name":"version","type":"u16","kind":"unsigned","addr":4,"offset":4,"size":2,"value":62935}]
+value (Header) @ 0x00000004 size=16
+|- magic (u32) @ 0x00000004 = 3360880087 (0xc852f5d7)
+|- version (u16) @ 0x00000008 = 48259 (0xbc83)
+|- flags (u16) @ 0x0000000a = 42128 (0xa490)
+`- timestamp (u64) @ 0x0000000c = 1165859946296548418 (0x102df771b4dc9c42)
+0 tests/syntax_structs.hexpat (2 patterns)
+  0x00000000     22  file (File)
+  0x00000016      4  footer (u32)
+-- generated flag colors and comments
+fs+hexpat
+f hexpat.value 4 @ 0x0
+fc hexpat.value=rgb:1144aa
+f hexpat.value.count 1 @ 0x0
+fc hexpat.value.count=rgb:ff0000
+fC hexpat.value.count entry count
+Cd 1 @ 0x0
+CCu u8 count = 0x7c @ 0x0
+f hexpat.value.inner 2 @ 0x1
+fc hexpat.value.inner=rgb:00ff00
+f hexpat.value.inner.word 2 @ 0x1
+fc hexpat.value.inner.word=rgb:00ff00
+Cd 2 @ 0x1
+CCu u16 word = 0x1527 @ 0x1
+f hexpat.value.data 1 @ 0x3
+fc hexpat.value.data=rgb:1144aa
+Cd 1 1 @ 0x3
+fs-
+rgb:1144aa
+rgb:ff0000
+rgb:00ff00
+rgb:00ff00
+rgb:1144aa
+    0 . classes
+    0 . format
+    5 . hexpat
+    1 * other
+    0 . sections
+    0 . segments
+    0 . symbols
+    0 . trycatch
+'fc hexpat.value=rgb:1144aa
+'fc hexpat.value.count=rgb:ff0000
+'fc hexpat.value.inner=rgb:00ff00
+'fc hexpat.value.inner.word=rgb:00ff00
+'fc hexpat.value.data=rgb:1144aa
+entry count
+-- regular flag export carries colors too
+fs+hexpat
+f hexpat.colored 1 @ 0x0
+fc hexpat.colored=rgb:abcdef
+f hexpat.colored.tag 1 @ 0x0
+fc hexpat.colored.tag=rgb:abcdef
+fC hexpat.colored.tag colored field
+Cd 1 @ 0x0
+CCu u8 tag = 0x7c @ 0x0
+fs-
+rgb:abcdef
+rgb:abcdef
+'fc hexpat.value=rgb:1144aa
+'fc hexpat.value.count=rgb:ff0000
+'fc hexpat.colored=rgb:abcdef
+'fc hexpat.colored.tag=rgb:abcdef
+'fc hexpat.value.inner=rgb:00ff00
+'fc hexpat.value.inner.word=rgb:00ff00
+'fc hexpat.value.data=rgb:1144aa
+colored (Color) @ 0x00000000 size=1 [[color("112233")]]
+`- tag (u8) @ 0x00000000 = 124 (0x7c) [[color("112233"), comment("colored field")]]
+rgb:112233
+rgb:112233
+'fc hexpat.value=rgb:1144aa
+'fc hexpat.value.count=rgb:ff0000
+'fc hexpat.colored=rgb:112233
+'fc hexpat.colored.tag=rgb:112233
+'fc hexpat.value.inner=rgb:00ff00
+'fc hexpat.value.inner.word=rgb:00ff00
+'fc hexpat.value.data=rgb:1144aa
+-- cleanup preview and application preserve sessions and unrelated flags
+fs+hexpat
+f-hexpat.*
+fs-
+0x00000000 1 other.keep
+0x00000000 1 hexpat.outside
+0x00000008 1 keep
+0 base64 (1 patterns)
+  0x00000000      1  colored (Color)
+-- cleanup also works after unloading
+rgb:1144aa
+rgb:ff0000
+rgb:00ff00
+rgb:00ff00
+rgb:1144aa
+0x00000008 1 keep
+-- errors
+ERROR: unknown symbol
+hexpat: missing type; see hexpatt?
+hexpat: error: unknown type 'Missing' (<expr>:1:1)
+hexpat: invalid address
+hexpat: error: type offset is outside the data (line 0:0)
+hexpat: invalid address
+hexpat: no types loaded: use -f file or load a pattern with hexpat

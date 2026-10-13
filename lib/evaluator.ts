@@ -158,6 +158,24 @@ export class PatternInstance {
     this.execBlock(constants(this.program.body), this.global);
   }
 
+  /** Decode a type against the input at an offset, without running top-level code. */
+  placeType(type: string, offset = 0, name?: string): Pattern {
+    if (!this.global) this.prepareTypes();
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > this.data.size())
+      this.error("type offset is outside the data");
+    this.frames = [this.global];
+    this.cursor = offset;
+    if (name === undefined) {
+      name = "value";
+      while (this.global.scope.vars.has(name)) name += "_";
+    }
+    const p = this.create(this.resolveType(parseType(type, this.types.keys())), name);
+    this.declare(name, { v: p }, this.global.scope, this.loc);
+    this.patterns.push(p);
+    this.variables.set(name, p);
+    return p;
+  }
+
   /** Build a fixed layout at offset zero, without reading any instance data. */
   instantiateType(type: string, options: LayoutOptions = {}): Pattern {
     const alignment = options.alignment === undefined ? 1 : options.alignment;
@@ -1836,19 +1854,14 @@ export class PatternInstance {
 
   private dumpPattern(p: Pattern, indent: number, print: (s: string) => void, name: string): void {
     if (p.hidden) return;
-    if (p.displayName) name = p.displayName;
     const pad = "".padStart(indent * 2, " ");
-    const addr = p.local ? "local" : "0x" + (this.dumpBase + p.offset).toString(16).padStart(8, "0");
-    const type = p.kind === "bitfield_field" ? p.typeName + ":" + p.bits : p.typeName;
-    let line = pad + name + " (" + type + ") @ " + addr;
+    print(pad + this.describePattern(p, this.dumpBase, name));
+    if (p.displayName) name = p.displayName;
     if (p.kind === "pointer") {
-      const v = this.value(p) as bigint;
-      print(line + " = " + fmtInt(v));
       if (p.pointee) this.dumpPattern(p.pointee, indent + 1, print, p.pointee.name || "*" + name);
       return;
     }
     if (p.isComposite() && !p.formatFn && !p.transformFn) {
-      print(line + " size=" + p.size);
       if (p.sealed) return;
       if (p.kind === "array") {
         const n = p.entryCount();
@@ -1856,9 +1869,16 @@ export class PatternInstance {
       } else for (const c of p.children || []) this.dumpPattern(c, indent + 1, print, c.name);
       return;
     }
-    if (p.kind === "padding") { print(line + " size=" + p.size); return; }
-    line += " = " + this.dumpValue(p);
-    print(line);
+  }
+
+  /** One pattern row, shared by the indented dump and the metadata tree. */
+  describePattern(p: Pattern, base = 0, name = p.name): string {
+    const addr = p.local ? "local" : "0x" + (base + p.offset).toString(16).padStart(8, "0");
+    const type = p.kind === "bitfield_field" ? p.typeName + ":" + p.bits : p.typeName;
+    const line = (p.displayName || name) + " (" + type + ") @ " + addr;
+    if (p.kind === "pointer") return line + " = " + fmtInt(this.value(p) as bigint);
+    if ((p.isComposite() && !p.formatFn && !p.transformFn) || p.kind === "padding") return line + " size=" + p.size;
+    return line + " = " + this.dumpValue(p);
   }
 
   private dumpValue(p: Pattern): string {

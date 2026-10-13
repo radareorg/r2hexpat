@@ -3,7 +3,8 @@
  * plugin.ts - radare2 core plugin (r2js) running the hexpat library.
  * R2Host implements the library's HexpatHost interface on top of r2 commands.
  */
-import { compile, evaluate, pragma, toJson, walkPatterns, HexpatHost, PatternError, PatternInstance, Pattern, SearchPattern } from "../lib/index";
+import { compile, evaluate, decodeType, pragma, toJson, patternToJson, dumpTree, patternColor, walkPatterns,
+  HexpatHost, PatternError, PatternInstance, Pattern, SearchPattern } from "../lib/index";
 import * as A from "../lib/ast";
 
 /** Host accessing r2 I/O (`p8`/`wx`), translated by a base address. */
@@ -73,7 +74,7 @@ export class R2Host implements HexpatHost {
 const VERSION = "0.3.0";
 
 const HELP = [
-  "Usage: hexpat[?+-jl*espm] [args]  # ImHex pattern language",
+  "Usage: hexpat[?+-jl*espmt] [args]  # ImHex pattern language",
   "| hexpat [-q] [-I dir] [file]  evaluate file (replacing the loaded ones) and show its patterns",
   "| hexpat                       show the patterns of the loaded files",
   "| hexpat+ [-I dir] file        evaluate file and add it to the loaded ones",
@@ -81,11 +82,13 @@ const HELP = [
   "| hexpat-v                     show the r2hexpat version",
   "| hexpatj [file]               show the patterns as JSON",
   "| hexpat* [file]               show the patterns as r2 commands (flags, comments, data hints)",
+  "| hexpat-*                     show r2 commands to remove generated flags (.hexpat-* applies them)",
   "| hexpatl[j]                   list the loaded files and their top-level patterns",
   "| hexpats [file]               one-line summary (types, fields, patterns) or the error, for status bars",
   "| hexpate expr                 evaluate an expression or assignment in the last loaded file (writes r2 I/O)",
   "| hexpatp[?+=-ijl] ...         create partial instances and masked search patterns (hexpatp? for help)",
   "| hexpatm [options] Type       print a libmagic decoder for a fixed type (hexpatm? for help)",
+  "| hexpatt[j*] [options] [Type [address]|pattern]  view a type at an address or a loaded pattern as a tree",
   "| hexpat?                      show this help",
   "| options: -q (evaluate only), -I dir (add #include / import search path)",
   "| file can be 'base64:<data>' to evaluate the encoded source instead of reading a file",
@@ -126,6 +129,19 @@ const MAGIC_HELP = [
   "| decode: pm /tmp/macho.magic @ 0  (increase block size with b if the header is larger)",
 ];
 
+const TREE_HELP = [
+  "Usage: hexpatt[j*] [options] [Type [address]|pattern]  # address-bound pattern tree",
+  "| hexpatt                       tree of loaded patterns, with values, colors and attributes",
+  "| hexpatt pattern               tree of a loaded pattern (nested paths also work)",
+  "| hexpatt [-f file] [-I dir] Type [address]  decode a type at an r2 address (default: current seek)",
+  "| hexpattj ...                  JSON including color, comment, displayName and attributes",
+  "| hexpatt* ...                  r2 commands for flags, flag colors/comments and data hints",
+  "| types: last loaded file or -f file; only types and constants are loaded, not placements or main()",
+  "| layouts: hexpat declarations, including data-dependent arrays; addresses honor base_address",
+  "| examples: hexpatt -f demo/player.hexpat Player @ 0x100; hexpatt header",
+  "| apply/remove flags: .hexpatt* Player @ 0x100; .hexpat-*",
+];
+
 /** Collect output lines and print them through r_cons at once (so ~grep and | work). */
 class Out {
   lines: string[] = [];
@@ -148,11 +164,12 @@ function word(src: string): { value: string; rest: string } {
   return { value, rest: "" };
 }
 
-function patternOptions(src: string): { file: string; includeDirs: string[]; alignment?: number; rest: string } {
+function patternOptions(src: string, allowAlignment = true): { file: string; includeDirs: string[]; alignment?: number; rest: string } {
   const opts = { file: "", includeDirs: [] as string[], alignment: undefined as number | undefined, rest: src.trim() };
   while (opts.rest.startsWith("-")) {
     const flag = word(opts.rest), arg = word(flag.rest);
-    if (!["-f", "--file", "-I", "-a", "--align"].includes(flag.value)) throw new Error("unknown layout option '" + flag.value + "'");
+    const allowed = allowAlignment ? ["-f", "--file", "-I", "-a", "--align"] : ["-f", "--file", "-I"];
+    if (!allowed.includes(flag.value)) throw new Error("unknown layout option '" + flag.value + "'");
     if (!arg.value) throw new Error("missing value for " + flag.value);
     if (flag.value === "-f" || flag.value === "--file") opts.file = arg.value;
     else if (flag.value === "-I") opts.includeDirs.push(arg.value);
@@ -249,6 +266,57 @@ function magicCommand(rest: string, out: Out): void {
   out.push(p.toMagic());
 }
 
+function treeCommand(tail: string, out: Out): void {
+  const mode = tail[0] && "j*?".includes(tail[0]) ? tail[0] : "";
+  const rest = (mode ? tail.substring(1) : tail).trim();
+  if (mode === "?" || rest === "-h" || rest === "--help") {
+    for (const line of TREE_HELP) out.push(line);
+    return;
+  }
+  const opts = patternOptions(rest, false), arg = word(opts.rest);
+  let targets: { session: Session; patterns: Pattern[] }[];
+  if (!arg.value) {
+    if (opts.file || opts.includeDirs.length) throw new Error("missing type; see hexpatt?");
+    targets = sessions.map((session) => ({ session, patterns: session.instance.patterns }));
+  } else {
+    const last = sessions[sessions.length - 1];
+    let p: Pattern | undefined;
+    if (!opts.file && !arg.rest && last) {
+      p = last.instance.get(arg.value);
+      if (!p && /^[a-zA-Z_]\w*[.\[]/.test(arg.value)) {
+        const v = last.instance.evaluateExpression(arg.value);
+        if (!(v instanceof Pattern)) throw new Error("tree requires a pattern");
+        p = v;
+      }
+    }
+    if (p) {
+      if (opts.includeDirs.length) throw new Error("-I requires -f when compiling types");
+      targets = [{ session: last, patterns: [p] }];
+    } else {
+      const program = searchProgram(opts.file, opts.includeDirs);
+      const host = new R2Host(r2, programBase(program));
+      host.quiet = true;
+      const number = r2.cmdj("?j " + (arg.rest || "$$"));
+      const address = Number(number ? number.uint64 : undefined);
+      if (!Number.isSafeInteger(address) || address < 0) throw new Error("invalid address");
+      const instance = decodeType(program, arg.value, host, address - host.baseAddress);
+      targets = [{ session: { file: opts.file || last.file, program, instance, host }, patterns: instance.patterns }];
+    }
+  }
+  if (mode === "j") {
+    out.push(JSON.stringify(targets.flatMap(({ session: s, patterns }) =>
+      patterns.filter((p) => !p.hidden).map((p) => patternToJson(s.instance, p, { base: s.host.baseAddress })))));
+  } else if (mode === "*") {
+    out.push("fs+hexpat");
+    for (const { session, patterns } of targets) r2script(session, out, patterns);
+    out.push("fs-");
+  } else {
+    const color = Number(r2.cmd("e scr.color").trim()) > 0;
+    for (const { session: s, patterns } of targets) dumpTree(s.instance, out.push, { base: s.host.baseAddress, color, patterns });
+    if (!targets.length) out.push("no patterns loaded, run 'hexpatt?' for help");
+  }
+}
+
 function parseArgs(args: string[]): { quiet: boolean; includeDirs: string[]; file: string } {
   const r = { quiet: false, includeDirs: [] as string[], file: "" };
   for (let i = 0; i < args.length; i++) {
@@ -260,6 +328,11 @@ function parseArgs(args: string[]): { quiet: boolean; includeDirs: string[]; fil
   return r;
 }
 
+function programBase(program: A.Program): number {
+  const ba = (pragma(program, "base_address") || "").match(/0x[0-9a-fA-F]+|\d+/);
+  return ba ? parseInt(ba[0]) : R2Host.binBaseAddress(r2);
+}
+
 function load(file: string, includeDirs: string[], quiet = false): Session {
   const host = new R2Host(r2);
   const inline = file.startsWith(B64);
@@ -269,8 +342,7 @@ function load(file: string, includeDirs: string[], quiet = false): Session {
   host.includeDirs = includeDirs;
   host.quiet = quiet;
   const program = compile(src || "", host, file);
-  const ba = (pragma(program, "base_address") || "").match(/0x[0-9a-fA-F]+|\d+/);
-  host.baseAddress = ba ? parseInt(ba[0]) : R2Host.binBaseAddress(r2);
+  host.baseAddress = programBase(program);
   return { file, program, instance: evaluate(program, host), host };
 }
 
@@ -306,13 +378,16 @@ function commentValue(inst: PatternInstance, p: Pattern): string {
   return inst.formatPattern(p, true);
 }
 
-function r2script(s: Session, out: Out): void {
+function r2script(s: Session, out: Out, patterns = s.instance.patterns): void {
   const inst = s.instance;
   const base = s.host.baseAddress;
   walkPatterns(inst, (p: Pattern, path: string[]) => {
     if (p.local || p.section !== 0) return false;
     const addr = "0x" + (base + p.offset).toString(16);
-    out.push("f " + flagName(path) + " " + Math.max(1, p.size) + " @ " + addr);
+    const name = flagName(path), color = patternColor(p);
+    out.push("f " + name + " " + Math.max(1, p.size) + " @ " + addr);
+    if (color) out.push("fc " + name + "=rgb:" + color);
+    if (p.comment) out.push("fC " + name + " " + sanitize(printable(p.comment, 256)));
     if (p.kind === "string" || p.kind === "wstring") {
       out.push("Cs " + p.size + " @ " + addr);
       out.push("CCu " + sanitize(p.typeName + " " + p.name + " = " + printable(String(inst.value(p)))) + " @ " + addr);
@@ -332,7 +407,7 @@ function r2script(s: Session, out: Out): void {
       out.push("CCu " + sanitize((t ? t + " " : "") + p.name + " = " + commentValue(inst, p)) + " @ " + addr);
     }
     return true;
-  });
+  }, patterns);
 }
 
 function list(out: Out, json: boolean): void {
@@ -410,7 +485,12 @@ function hexpatCommand(cmd: string): void {
         break;
       }
       case "-": {
-        if (rest === "v") out.push(VERSION);
+        if (cmd.charAt(7) === "*") {
+          if (rest !== "*") throw new Error("Usage: hexpat-*");
+          out.push("fs+hexpat");
+          out.push("f-hexpat.*");
+          out.push("fs-");
+        } else if (rest === "v") out.push(VERSION);
         else if (rest === "" || rest === "*") sessions.length = 0;
         else {
           const n = parseInt(rest, 10);
@@ -456,6 +536,7 @@ function hexpatCommand(cmd: string): void {
       }
       case "p": patternCommand(cmd.substring(7), out); break;
       case "m": magicCommand(rest, out); break;
+      case "t": treeCommand(cmd.substring(7), out); break;
       default:
         for (const l of HELP) out.push(l);
     }
@@ -479,7 +560,7 @@ function hexpatCommand(cmd: string): void {
       call: function (cmd: string) {
         if (!cmd.startsWith("hexpat")) return false;
         const c = cmd.charAt(6);
-        if (c !== "" && " ?h+-j*lespm".indexOf(c) < 0) return false;
+        if (c !== "" && " ?h+-j*lespmt".indexOf(c) < 0) return false;
         hexpatCommand(cmd);
         return true;
       },

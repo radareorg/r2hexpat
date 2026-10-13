@@ -230,7 +230,13 @@ const BUILTINS: Record<string, Fn> = {
   "std::core::get_attribute_value": (ev, a) => BUILTINS["std::core::get_attribute_argument"](ev, a, ev.loc),
   "std::core::set_display_name": (ev, a) => { if (a[0] instanceof Pattern) a[0].name = ev.toStr(ev.decay(a[1])); },
   "std::core::set_pattern_comment": (ev, a) => { if (a[0] instanceof Pattern) a[0].comment = ev.toStr(ev.decay(a[1])); },
-  "std::core::set_pattern_color": () => undefined,
+  "std::core::set_pattern_color": (ev, a) => {
+    if (a[0] instanceof Pattern) {
+      // The runtime's integer colors store red in the least significant byte.
+      const color = uintN(32, ev.toInt(a[1]));
+      a[0].color = [0n, 8n, 16n].map((shift) => Number((color >> shift) & 0xffn).toString(16).padStart(2, "0")).join("");
+    }
+  },
   "std::core::set_endian": (ev, a) => { const e = ev.toInt(a[0]); ev.bigEndian = e === 1n; },
   "std::core::get_endian": (ev) => (ev.bigEndian ? 1n : 2n),
   "std::core::array_index": (ev) => ev.arrayIndex,

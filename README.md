@@ -31,11 +31,13 @@ Commands (all output goes through r2's console, so `~grep` and `|` work):
 | `hexpat- [n]` | unload all loaded files (or the nth) |
 | `hexpat-v` | show the r2hexpat version |
 | `hexpatj [file]` | patterns as JSON (`hexpatj~{}` to indent) |
-| `hexpat* [file]` | patterns as r2 commands: flags in the `hexpat` flagspace, `Cd`/`Cs` data hints and value comments (`.hexpat*` applies them) |
+| `hexpat* [file]` | patterns as r2 commands: flags in the `hexpat` flagspace, flag colors/comments, `Cd`/`Cs` data hints and value comments (`.hexpat*` applies them) |
+| `hexpat-*` | r2 commands to remove generated flags (`.hexpat-*` applies them) |
 | `hexpatl[j]` | list loaded files and their top-level patterns |
 | `hexpate expr` | evaluate an expression or assignment in the last loaded file (`hexpate sizeof(header)`, `hexpate header.value = 3`) |
 | `hexpatp[?+=-ijl] ...` | build partial instances and masked search patterns (`hexpatp?` for help) |
 | `hexpatm [options] Type` | print a libmagic header decoder (`hexpatm?` for help) |
+| `hexpatt[j*] [options] [Type [address]\|pattern]` | view a type at an address or a loaded pattern as a tree, JSON or r2 commands (`hexpatt?` for help) |
 | `hexpats [file]` | one-line summary (types with their field count, enums, functions, patterns, size) or the error, meant for status bars |
 | `hexpat?` | help |
 
@@ -56,6 +58,46 @@ its layout changes. Fields with `[[transform(...)]]` cannot be written because
 the transform has no inverse.
 Quote the whole r2 command when it contains operators that r2 handles itself,
 for example `"hexpate header.value |= 8"` or `"hexpate header.value >= 3"`.
+
+## Address-bound trees and flag colors
+
+`hexpatt` displays a type's fields as a tree with addresses, values, sizes
+and evaluated attributes, including `color`, `comment` and `name`:
+
+```text
+hexpatt -f types.hexpat Header @ 0x100
+hexpat -q types.hexpat
+hexpatt Header 0x100
+hexpatt header
+hexpatt header.inner
+hexpatt
+```
+
+A type uses the current r2 seek when no address is given; an explicit address
+can be an r2 expression or flag name. `-f file` supplies types without loading
+the file's placements, executing its top-level statements or calling `main()`.
+It accepts `base64:` sources and `-I dir` for includes. Without `-f`, types come
+from the last loaded file. Type decoding follows ordinary hexpat declarations,
+including data-dependent arrays and pointers, and honors the binary base
+address or `#pragma base_address`. These one-shot views preserve loaded files
+and search instances. A loaded pattern name or nested path shows its existing
+tree; no arguments shows all loaded patterns.
+
+Rows display their color attributes even with `e scr.color=0`; enabling colors
+also colors the rows. Enclosing aggregate colors apply to members that have no
+explicit color of their own. `hexpattj` and `hexpatj` expose `color`, `comment`,
+`displayName` and evaluated `attributes` in JSON.
+
+`hexpat*` and `hexpatt*` emit `fc flag=rgb:RRGGBB` for colored flags and `fC`
+for pattern comments. The runtime's `std::core::set_pattern_color` is supported
+too. Apply a type's flags directly with `.hexpatt* -f types.hexpat Header @ 0x100`.
+
+`hexpat-*` prints a removal script; `.hexpat-*` applies it. This removes flags
+matching `hexpat.*` in the `hexpat` flagspace, including their flag metadata,
+and restores the previous flagspace. It works after the patterns are unloaded
+and preserves other flags, loaded files and search instances. Address comments
+and data hints remain. `hexpat-` (or `hexpat- *`, with a space) still unloads
+the pattern files.
 
 ## Search patterns
 
@@ -188,6 +230,12 @@ evaluates an expression or assignment in the global scope of an evaluated patter
 `BufferHost` is a ready-made host over a `Uint8Array`. `HostHooks` adds
 functions, types, pragma handlers and `in` variables, like the C++ runtime's
 `addFunction`/`addType`/`addPragma`.
+
+`decodeType(program, "Header", host, offset)` decodes one type at a host-relative
+offset after preparing types and constants only. Its root pattern is named
+`value` (with underscores added if a constant already uses that name).
+`dumpTree(inst, print, { base, color, maxEntries })` renders a tree
+with metadata; `patterns` can select specific roots.
 
 Hosts can implement `write(addr, bytes)` for interactive field assignments;
 read-only hosts reject those writes. Assignments while evaluating a pattern
